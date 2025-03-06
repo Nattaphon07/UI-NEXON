@@ -1,2205 +1,1789 @@
--- NEXON UI Library
--- Created with advanced styling and full functionality
-
--- Services
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-local CoreGui = game:GetService("CoreGui")
-local TextService = game:GetService("TextService")
+local UserInputService = game:GetService("UserInputService")
 
-local Player = Players.LocalPlayer
+local ScreenGui = game:GetObjects("rbxassetid://99852798675591")[1]
+ScreenGui.Enabled = false
 
--- Constants
-local FONT = Enum.Font.Gotham
-local TEXT_SIZE = 14
-local HEADER_SIZE = 18
-local TITLE_SIZE = 24
-local CORNER_RADIUS = 6
-local TWEEN_TIME = 0.2
-local ELEMENT_HEIGHT = 36
-local ACCENT_COLOR = Color3.fromRGB(255, 0, 128) -- Hot pink accent
-local SHADOW_COLOR = Color3.fromRGB(0, 0, 0)
+if RunService:IsStudio() then
+	ScreenGui.Parent = game.StarterGui
+else
+	ScreenGui.Parent = cloneref(game.CoreGui)
+end
 
--- Main Library
-local NexonUI = {
-    Windows = {},
-    Flags = {},
-    Theme = {
-        Background = Color3.fromRGB(25, 25, 25),
-        Card = Color3.fromRGB(30, 30, 30),
-        TopBar = Color3.fromRGB(35, 35, 35),
-        Section = Color3.fromRGB(40, 40, 40),
-        Text = Color3.fromRGB(255, 255, 255),
-        SubText = Color3.fromRGB(200, 200, 200),
-        Accent = ACCENT_COLOR,
-        LightAccent = Color3.fromRGB(255, 100, 175),
-        Error = Color3.fromRGB(255, 68, 68),
-        Success = Color3.fromRGB(68, 255, 135),
-        Warning = Color3.fromRGB(255, 184, 48)
-    },
-    Initialized = false
+local Library = {
+	sizeX = 800,
+	sizeY = 600,
+	tabSizeX = 200,
+
+	dragging = false,
+	sliderDragging = false,
+	firstTabDebounce = false,
+	firstSubTabDebounce = false, 
+	processedEvent = false,
+	managerCreated = false, -- Using this as a check to clean up unused Addon objects
+	lineIndex = 0,
+
+	Connections = {},
+	Addons = {}, -- To store addon frames to clean up unused ones later, this is my solution to this problem, if you can find a better solution then just create a pull request, thanks.
+	Exclusions = {},
+	SectionFolder = {
+		Left = {},
+		Right = {},
+	},
+	Flags = {
+		Toggle = {},
+		Slider = {},
+		TextBox = {},
+		Keybind = {},
+		Dropdown = {},	
+		ColorPicker = {},
+	},
+	Theme = {},
+	DropdownSizes = {}, -- to store previous opened dropdown size to resize scrollingFrame canvassize
+}
+Library.__index = Library
+
+shared.Flags = Library.Flags
+
+local Connections = Library.Connections
+local Exclusions = Library.Exclusions
+
+local Assets = ScreenGui.Assets
+local Modules = {
+	Dropdown = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Dropdown.lua", true))(),
+	Toggle = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Toggle.lua", true))(),
+	Popup = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Popup.lua", true))(),
+	Slider = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Slider.lua", true))(),
+	Keybind = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Keybind.lua", true))(),
+	TextBox = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/TextBox.lua", true))(),
+	Navigation = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Navigation.lua", true))(),
+	ColorPicker = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/ColorPicker.lua", true))(),
 }
 
--- Utility Functions
-local Utility = {}
+local Utility = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Utility.lua", true))()
+local Theme = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/L3nyFromV3rm/Leny-UI/refs/heads/main/Modules/Theme.lua", true))()
+Library.Theme = Theme
 
-function Utility:Create(class, properties)
-    local instance = Instance.new(class)
-    
-    for prop, value in pairs(properties) do
-        if prop ~= "Parent" then
-            instance[prop] = value
-        end
-    end
-    
-    if properties.Parent then
-        instance.Parent = properties.Parent
-    end
-    
-    return instance
+local Popups = ScreenGui.Popups
+
+-- Set default size for UI
+local Glow = ScreenGui.Glow
+Glow.Size = UDim2.fromOffset(Library.sizeX, Library.sizeY)
+
+local Background = Glow.Background
+
+local Tabs = Background.Tabs
+local Filler = Tabs.Filler
+local Resize = Filler.Resize
+local Line = Filler.Line
+local Title = Tabs.Frame.Title
+
+-- Tab resizing stuff
+local tabResizing = false
+Resize.MouseButton1Down:Connect(function()
+	tabResizing = true
+end)
+
+local touchMoved = UserInputService.TouchMoved:Connect(function()
+	if tabResizing then
+		local newSizeX = math.clamp(((input.Position.X - Glow.AbsolutePosition.X) / Glow.AbsoluteSize.X) * Glow.AbsoluteSize.X, 72, 208)
+		Utility:tween(Tabs, {Size = UDim2.new(0, newSizeX, 1, 0)}, 0.2):Play()
+		Utility:tween(Background.Pages, {Size = UDim2.new(1, -newSizeX, 1, 0)}, 0.2):Play()
+	end
+end)
+
+local inputChanged = UserInputService.InputChanged:Connect(function(input)
+	if tabResizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local newSizeX = math.clamp(((input.Position.X - Glow.AbsolutePosition.X) / Glow.AbsoluteSize.X) * Glow.AbsoluteSize.X, 72, 208)
+		Utility:tween(Tabs, {Size = UDim2.new(0, newSizeX, 1, 0)}, 0.2):Play()
+		Utility:tween(Background.Pages, {Size = UDim2.new(1, -newSizeX, 1, 0)}, 0.2):Play()
+	end
+end)
+
+local touchEnded = UserInputService.TouchEnded:Connect(function(input)
+	if tabResizing then
+		tabResizing = false
+	end
+end)
+
+table.insert(Connections, inputChanged)
+
+Resize.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		tabResizing = false
+	end
+end)
+
+-- Mobile compatibility
+Glow:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+	for _, data in ipairs(Library.SectionFolder.Right) do
+		if Glow.AbsoluteSize.X <= 660 then
+			data.folders.Right.Visible = false
+			data.folders.Left.Size = UDim2.fromScale(1, 1)
+			data.object.Parent = data.folders.Left
+		else
+			data.folders.Left.Size = UDim2.new(0.5, -7, 1, 0)
+			data.folders.Right.Visible = true
+			data.object.Parent = data.folders.Right
+		end
+	end
+	
+	for _, data in ipairs(Library.SectionFolder.Left) do
+		if Glow.AbsoluteSize.X <= 660 then
+			data.folders.Right.Visible = false
+			data.folders.Left.Size = UDim2.fromScale(1, 1)
+		else
+			data.folders.Left.Size = UDim2.new(0.5, -7, 1, 0)
+			data.folders.Right.Visible = true
+		end
+	end
+end)
+
+function Library.new(options)
+	Utility:validateOptions(options, {
+		sizeX = {Default = Library.sizeX, ExpectedType = "number"},
+		sizeY = {Default = Library.sizeY, ExpectedType = "number"},
+		tabSizeX = {Default = Library.tabSizeX, ExpectedType = "number"},
+		title = {Default = "Leny", ExpectedType = "string"},
+		PrimaryBackgroundColor = {Default = Library.Theme.PrimaryBackgroundColor, ExpectedType = "Color3"},
+		SecondaryBackgroundColor = {Default = Library.Theme.SecondaryBackgroundColor, ExpectedType = "Color3"},
+		TertiaryBackgroundColor = {Default = Library.Theme.TertiaryBackgroundColor, ExpectedType = "Color3"},
+		TabBackgroundColor = {Default = Library.Theme.TabBackgroundColor, ExpectedType = "Color3"},
+		PrimaryTextColor = {Default = Library.Theme.PrimaryTextColor, ExpectedType = "Color3"},
+		SecondaryTextColor = {Default = Library.Theme.SecondaryTextColor, ExpectedType = "Color3"},
+		PrimaryColor = {Default = Library.Theme.PrimaryColor, ExpectedType = "Color3"},
+		ScrollingBarImageColor = {Default = Library.Theme.ScrollingBarImageColor, ExpectedType = "Color3"},
+		Line = {Default = Library.Theme.Line, ExpectedType = "Color3"},
+	})
+
+	Library.tabSizeX = math.clamp(options.tabSizeX, 72, 208)
+	Library.sizeX = options.sizeX
+	Library.sizeY = options.sizeY
+	Library.Theme.PrimaryBackgroundColor = options.PrimaryBackgroundColor
+	Library.Theme.SecondaryBackgroundColor = options.SecondaryBackgroundColor
+	Library.Theme.TertiaryBackgroundColor = options.TertiaryBackgroundColor -- new
+	Library.Theme.TabBackgroundColor = options.TabBackgroundColor
+	Library.Theme.PrimaryTextColor = options.PrimaryTextColor
+	Library.Theme.SecondaryTextColor = options.SecondaryTextColor
+	Library.Theme.PrimaryColor = options.PrimaryColor
+	Library.Theme.ScrollingBarImageColor = options.ScrollingBarImageColor
+	Library.Theme.Line = options.Line
+
+	ScreenGui.Enabled = true
+	Title.Text = options.title
+	Glow.Size = UDim2.fromOffset(options.sizeX, options.sizeY)
 end
 
-function Utility:Tween(instance, properties, time, style, direction, callback)
-    time = time or TWEEN_TIME
-    style = style or Enum.EasingStyle.Quart
-    direction = direction or Enum.EasingDirection.Out
-    
-    local tween = TweenService:Create(
-        instance,
-        TweenInfo.new(time, style, direction),
-        properties
-    )
-    
-    tween:Play()
-    
-    if callback then
-        tween.Completed:Connect(callback)
-    end
-    
-    return tween
+function Library:createAddons(text, imageButton, scrollingFrame, additionalAddons)	
+	local Addon = Assets.Elements.Addons:Clone()
+	Addon.Size = UDim2.fromOffset(scrollingFrame.AbsoluteSize.X * 0.5, Addon.Inner.UIListLayout.AbsoluteContentSize.Y)
+	table.insert(self.Addons, Addon)
+	
+	local Inner = Addon.Inner
+	
+	local TextLabel = Inner.TextLabel
+	TextLabel.Text = text .. " Addons"
+
+	local PopupContext = Utility:validateContext({
+		Popup = {Value = Addon, ExpectedType = "Instance"},
+		Target = {Value = imageButton, ExpectedType = "Instance"},
+		Library = {Value = Library, ExpectedType = "table"},
+		TransparentObjects = {Value = Utility:getTransparentObjects(Addon), ExpectedType = "table"},
+		ScrollingFrame = {Value = scrollingFrame, ExpectedType = "Instance"},
+		Popups = {Value = Popups, ExpectedType = "Instance"},
+		Inner = {Value = Inner, ExpectedType = "Instance"},
+		PositionPadding = {Value = 18 + 7, ExpectedType = "number"},
+		SizePadding = {Value = 30, ExpectedType = "number"},
+	})
+	
+	Theme:registerToObjects({
+		{object = Addon, property = "BackgroundColor3", theme = {"Line"}},
+		{object = Inner, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = TextLabel, property = "TextColor3", theme = {"PrimaryTextColor"}},
+	})
+	
+    local Popup = Modules.Popup.new(PopupContext)
+	imageButton.MouseButton1Down:Connect(Popup:togglePopup())
+	Popup:hidePopupOnClickingOutside()
+
+	local DefaultAddons = {
+		createToggle = function(self, options)
+			Library:createToggle(options, Addon.Inner, scrollingFrame)
+		end,
+
+		createSlider = function(self, options)
+			Library:createSlider(options, Addon.Inner, scrollingFrame)
+		end,
+
+		createDropdown = function(self, options)
+			options.default = {} -- need to do this for some reason since I clearly implied that default was as table value but guess not?
+			Library:createDropdown(options, Addon.Inner, scrollingFrame)
+		end,
+
+		createPicker = function(self, options)
+			Library:createPicker(options, Addon.Inner, scrollingFrame, true)
+		end,
+
+		createKeybind = function(self, options)
+			Library:createKeybind(options, Addon.Inner, scrollingFrame)
+		end,
+		
+		createButton = function(self, options)
+			Library:createButton(options, Addon.Inner, scrollingFrame)
+		end,
+		
+		createTextBox = function(self, options)
+			Library:createTextBox(options, Addon.Inner, scrollingFrame)
+		end,
+	}
+
+	for key, value in pairs(additionalAddons or  {}) do
+		DefaultAddons[key] = value
+	end
+
+	return setmetatable({},  {
+		__index = function(table, key)
+			local originalFunction = DefaultAddons[key]
+
+			if type(originalFunction) == "function" then
+				return function(...)
+					-- Show imageButton if the index name is "create"
+					if string.match(key, "create") then
+						if Addon.Parent == nil then
+							Addon.Parent = Popups
+						end
+
+						imageButton.Visible = true
+					end
+
+					-- updateTransparentObjects again to account for the new creation of element after the call.
+					return originalFunction(...), Popup:updateTransparentObjects(Addon)
+				end
+			else
+				return originalFunction
+			end
+		end,
+
+		__newindex = function(table, key, value)
+			DefaultAddons[key] = value
+		end
+	})
 end
 
-function Utility:MakeDraggable(frame, handle)
-    local dragging = false
-    local dragInput, mousePos, framePos
-    
-    handle = handle or frame
-    
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            mousePos = input.Position
-            framePos = frame.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-    
-    handle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - mousePos
-            Utility:Tween(frame, {
-                Position = UDim2.new(
-                    framePos.X.Scale, 
-                    framePos.X.Offset + delta.X,
-                    framePos.Y.Scale,
-                    framePos.Y.Offset + delta.Y
-                )
-            }, 0.05)
-        end
-    end)
+function Library:destroy()
+	for _, rbxSignals in ipairs(Connections) do
+		rbxSignals:disconnect()
+	end
+	task.wait(0.1)
+	ScreenGui:Destroy()
 end
 
-function Utility:CreateShadow(parent, elevation)
-    elevation = elevation or 1
-    local size = 8 * elevation
-    
-    local shadow = Utility:Create("ImageLabel", {
-        Name = "Shadow",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, 0, 0.5, 0),
-        Size = UDim2.new(1, size, 1, size),
-        Image = "rbxassetid://7709956454",
-        ImageColor3 = SHADOW_COLOR,
-        ImageTransparency = 0.2,
-        ScaleType = Enum.ScaleType.Slice,
-        SliceCenter = Rect.new(15, 15, 175, 175),
-        SliceScale = 1,
-        ZIndex = 0,
-        Parent = parent
-    })
-    
-    return shadow
+function Library:createLabel(options: table)
+	Utility:validateOptions(options, {
+		text = {Default = "Main", ExpectedType = "string"},
+	})
+
+	options.text = string.upper(options.text)
+
+	local ScrollingFrame = Background.Tabs.Frame.ScrollingFrame
+
+	local Line = Assets.Tabs.Line:Clone()
+	Line.Visible = true
+	Line.BackgroundColor3 = Theme.Line
+	Line.Parent = ScrollingFrame
+
+	local TextLabel = Assets.Tabs.TextLabel:Clone()
+	TextLabel.Visible = true
+	TextLabel.Text = options.text
+	TextLabel.Parent = ScrollingFrame
+
+	for _, line in ipairs(ScrollingFrame:GetChildren()) do
+		if line.Name ~= "Line" then
+			continue
+		end
+
+		self.lineIndex += 1
+
+		if self.lineIndex == 1 then
+			line:Destroy()
+		end
+	end
+	
+	Theme:registerToObjects({
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Line, property = "BackgroundColor3", theme = {"Line"}},
+	})
 end
 
-function Utility:Ripple(button, centered)
-    button.ClipsDescendants = true
-    
-    button.MouseButton1Down:Connect(function(x, y)
-        local ripple = Utility:Create("Frame", {
-            Name = "Ripple",
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-            BackgroundTransparency = 0.7,
-            BorderSizePixel = 0,
-            Position = centered and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, x - button.AbsolutePosition.X, 0, y - button.AbsolutePosition.Y),
-            Size = UDim2.new(0, 0, 0, 0),
-            ZIndex = 10,
-            Parent = button
-        })
-        
-        Utility:Create("UICorner", {
-            CornerRadius = UDim.new(1, 0),
-            Parent = ripple
-        })
-        
-        local size = centered and button.AbsoluteSize.X or math.max(button.AbsoluteSize.X, button.AbsoluteSize.Y) * 2
-        
-        Utility:Tween(ripple, {
-            Size = UDim2.new(0, size, 0, size),
-            BackgroundTransparency = 1
-        }, 0.5)
-        
-        wait(0.5)
-        ripple:Destroy()
-    end)
+function Library:createTab(options: table)
+	Utility:validateOptions(options, {
+		text = {Default = "Tab", ExpectedType = "string"},
+		icon = {Default = "124718082122263", ExpectedType = "string"},
+	})
+
+	-- Change tab size depending on Library.tabSizeX, maybe make resizer for tabs later
+	Background.Tabs.Size = UDim2.new(0, Library.tabSizeX, 1, 0)
+	Background.Pages.Size = UDim2.new(1, -Library.tabSizeX, 1, 0)
+
+	local ScrollingFrame = Background.Tabs.Frame.ScrollingFrame
+
+	local Tab = Assets.Tabs.Tab:Clone()
+	Tab.Visible = true
+	Tab.Parent = ScrollingFrame
+
+	local ImageButton = Tab.ImageButton
+
+	local Icon = ImageButton.Icon
+	Icon.Image = "rbxassetid://" .. options.icon
+
+	local TextButton = ImageButton.TextButton
+	TextButton.Text = options.text
+
+	local Page = Assets.Pages.Page:Clone()
+	Page.Parent = Background.Pages
+	
+	local Frame = Page.Frame
+	local PageLine = Frame.Line
+
+	local CurrentTabLabel = Frame.CurrentTabLabel
+	CurrentTabLabel.Text = options.text
+	CurrentTabLabel.TextColor3 = Theme.PrimaryTextColor
+
+	local SubTabs = Page.SubTabs
+	local SubLine = SubTabs.Line
+
+	local function tweenTabAssets(tab: Instance, icon: Instance, textButton: Instance, color: textColor3, backgroundColor3: Color3, backgroundTransparency: number, textTransparency: number, imageTransparency: number)
+		Utility:tween(tab, {BackgroundColor3 = backgroundColor3, BackgroundTransparency = backgroundTransparency}, 0.5):Play()
+		Utility:tween(icon, {ImageTransparency = imageTransparency, ImageColor3 = color}, 0.5):Play()
+		Utility:tween(textButton, {TextColor3 = color, TextTransparency = textTransparency}, 0.5):Play()
+	end	
+
+	local function fadeAnimation()
+		local function tweenFadeAndPage(fade: Instance, backgroundTransparency: number, textTransparency: number, paddingY: number)
+			Utility:tween(fade, {BackgroundTransparency = backgroundTransparency}, 0.2):Play()
+			Utility:tween(CurrentTabLabel.UIPadding, {PaddingBottom = UDim.new(0, paddingY)}, 0.2):Play()
+		end
+
+		for _, subPage in ipairs(Page:GetChildren()) do
+			if subPage.Name == "SubPage" and subPage.Visible and subPage:FindFirstChild("ScrollingFrame") then
+				Utility:tween(subPage.ScrollingFrame.UIPadding, {PaddingTop = UDim.new(0, 10)}, 0.2):Play()
+
+				task.delay(0.2, function()
+					Utility:tween(subPage.ScrollingFrame.UIPadding, {PaddingTop = UDim.new(0, 0)}, 0.2):Play()
+				end)
+			end
+		end
+
+		local Fade = Assets.Pages.Fade:Clone()
+		Fade.BackgroundTransparency = 1
+		Fade.Visible = true
+		Fade.Parent = Background.Pages
+
+		tweenFadeAndPage(Fade, 0, 1, 14)
+
+		task.delay(0.2, function()
+			tweenFadeAndPage(Fade, 1, 0, 0)
+			task.wait(0.2)
+			Fade:Destroy()
+		end)
+	end
+		
+	local Context = Utility:validateContext({
+		Page = {Value = Page, ExpectedType = "Instance"},
+		Pages = {Value = Background.Pages, ExpectedType = "Instance"},
+		Popups = {Value = Popups, ExpectedType = "Instance"},
+		ScrollingFrame = {Value = Background.Tabs.Frame.ScrollingFrame, ExpectedType = "Instance"},
+		animation = {Value = fadeAnimation, ExpectedType = "function"},
+
+		tweenTabOn = {Value = function()
+			tweenTabAssets(Tab, Icon, TextButton, Theme.PrimaryColor, Theme.TabBackgroundColor, 0, 0, 0)
+		end, ExpectedType = "function"},
+
+		tweenTabsOff = {Value = function(tab)
+			tweenTabAssets(tab, tab.ImageButton.Icon, tab.ImageButton.TextButton, Theme.SecondaryTextColor, Theme.TabBackgroundColor, 1, 0, 0)
+		end, ExpectedType = "function"},
+
+		hoverOn = {Value = function()
+			tweenTabAssets(Tab, Icon, TextButton, Theme.PrimaryColor, Theme.TabBackgroundColor, 0.16, 0.3, 0.3)
+		end, ExpectedType = "function"},
+
+		hoverOff = {Value = function()
+			tweenTabAssets(Tab, Icon, TextButton, Theme.SecondaryTextColor, Theme.TabBackgroundColor, 1, 0, 0)
+		end, ExpectedType = "function"},
+	})
+
+	local Navigation = Modules.Navigation.new(Context)
+
+	-- this is stupid but anyways!!!
+	if not self.firstTabDebounce then
+		Navigation:enableFirstTab()
+		self.firstTabDebounce = true
+	end
+
+	ScrollingFrame.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, ScrollingFrame.UIListLayout.AbsoluteContentSize.Y + ScrollingFrame.UIListLayout.Padding.Offset)
+	end)
+
+	ImageButton.MouseButton1Down:Connect(Navigation:selectTab())
+	Icon.MouseButton1Down:Connect(Navigation:selectTab())
+	TextButton.MouseButton1Down:Connect(Navigation:selectTab())
+	ImageButton.MouseEnter:Connect(Navigation:hoverEffect(true))
+	ImageButton.MouseLeave:Connect(Navigation:hoverEffect(false))
+	
+	Theme:registerToObjects({
+		{object = Tab, property = "BackgroundColor3", theme = {"TabBackgroundColor"}},
+		{object = Icon, property = "ImageColor3", theme = {"SecondaryTextColor", "PrimaryColor"}},
+		{object = TextButton, property = "TextColor3", theme = {"SecondaryTextColor", "PrimaryColor"}},
+		{object = Frame, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = SubTabs, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = PageLine, property = "BackgroundColor3", theme = {"Line"}},
+		{object = SubLine, property = "BackgroundColor3", theme = {"Line"}},
+		{object = CurrentTabLabel, property = "TextColor3", theme = {"PrimaryTextColor"}},
+	}, "Tab")
+
+	local PassingContext = setmetatable({Page = Page}, Library)
+	return PassingContext
 end
 
-function Utility:SmoothScroll(scrollFrame, speed)
-    speed = speed or 14
-    local goal = scrollFrame.CanvasPosition
-    
-    RunService.RenderStepped:Connect(function()
-        scrollFrame.CanvasPosition = scrollFrame.CanvasPosition:Lerp(goal, speed / 100)
-    end)
-    
-    scrollFrame.Changed:Connect(function(prop)
-        if prop == "CanvasPosition" and scrollFrame.CanvasPosition ~= goal then
-            goal = scrollFrame.CanvasPosition
-        end
-    end)
-    
-    return goal
+function Library:createSubTab(options: table)
+	-- Use provided options, or fall back to defaults if not provided	
+	Utility:validateOptions(options, {
+		sectionStyle = {Default = "Double", ExpectedType = "string"},
+		text = {Default = "SubTab", ExpectedType = "string"},
+	})
+
+	local Moveable = self.Page.SubTabs.Frame.Moveable
+	local Underline, ScrollingFrame = Moveable.Underline, Moveable.Parent.ScrollingFrame
+
+	local SubPage = Assets.Pages.SubPage:Clone()
+	SubPage.Parent = self.Page
+
+	local Left, Right = SubPage.ScrollingFrame.Left, SubPage.ScrollingFrame.Right
+
+	local SubTab = Assets.Pages.SubTab:Clone()
+	SubTab.Visible = true
+	SubTab.Text = options.text
+	SubTab.TextColor3 = Theme.SecondaryTextColor
+	SubTab.Parent = ScrollingFrame
+
+	local TextService = game:GetService("TextService")
+	SubTab.Size = UDim2.new(0, TextService:GetTextSize(options.text, 15, Enum.Font.MontserratMedium, SubTab.AbsoluteSize).X, 1, 0)
+
+	-- Calculate subTab position to position underline
+	local subTabIndex, subTabPosition = 0, 0
+
+	for index, subTab in ipairs(ScrollingFrame:GetChildren()) do
+		if subTab.Name ~= "SubTab" then
+			continue
+		end
+
+		subTabIndex += 1
+
+		if subTabIndex == 1 then
+			subTabPosition = 0
+		else				
+			local condition, object = Utility:lookBeforeChildOfObject(index, ScrollingFrame, "SubTab")
+			subTabPosition += subTab.Size.X.Offset + ScrollingFrame.UIListLayout.Padding.Offset
+
+			if condition then
+				subTabPosition -= (subTab.Size.X.Offset - object.Size.X.Offset)
+			end		
+		end
+	end
+
+	local function tweenSubTabAssets(subTab, underline, textColor, textTransparency: number, disableUnderlineTween: boolean)
+		Utility:tween(subTab, {TextColor3 = textColor, TextTransparency = textTransparency}, 0.2):Play()
+
+		if not disableUnderlineTween then
+			Utility:tween(underline, {BackgroundColor3 = Theme.PrimaryColor, Position = UDim2.new(0, subTabPosition, 1, 0), Size = UDim2.new(0, subTab.Size.X.Offset, 0, 2)}, 0.2):Play()
+		end
+	end
+
+	local function autoCanvasSizeSubPageScrollingFrame()
+		local max = math.max(Left.UIListLayout.AbsoluteContentSize.Y, Right.UIListLayout.AbsoluteContentSize.Y)
+		SubPage.ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, max)
+	end
+
+	local function updateSectionAnimation()
+		Utility:tween(SubPage.ScrollingFrame.UIPadding, {PaddingTop = UDim.new(0, 10)}, 0.2):Play()
+
+		task.delay(0.2, function()
+			Utility:tween(SubPage.ScrollingFrame.UIPadding, {PaddingTop = UDim.new(0, 0)}, 0.2):Play()
+		end)
+	end
+
+	local Context = Utility:validateContext({
+		Page = {Value = SubPage, ExpectedType = "Instance"},
+		Pages = {Value = self.Page, ExpectedType = "Instance"},
+		Popups = {Value = Popups, ExpectedType = "Instance"},
+		ScrollingFrame = {Value = ScrollingFrame, ExpectedType = "Instance"},
+		animation = {Value = updateSectionAnimation, ExpectedType = "function"},
+
+		tweenTabOn = {Value = function()
+			tweenSubTabAssets(SubTab, Underline, Theme.PrimaryColor, 0, false)
+		end, ExpectedType = "function"},
+
+		tweenTabsOff = {Value = function(subTab)
+			tweenSubTabAssets(subTab, Underline, Theme.SecondaryTextColor, 0, true)
+		end, ExpectedType = "function"},
+
+		hoverOn = {Value = function()
+			tweenSubTabAssets(SubTab, Underline, Theme.PrimaryColor, 0.3, true)
+		end, ExpectedType = "function"},
+
+		hoverOff = {Value = function()
+			tweenSubTabAssets(SubTab, Underline, Theme.SecondaryTextColor, 0, true)
+		end, ExpectedType = "function"},
+	})
+
+	local Navigation = Modules.Navigation.new(Context)
+
+	if not self.firstSubTabDebounce then
+		Navigation:enableFirstTab()
+		self.firstSubTabDebounce = true
+	end
+
+	Left.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(autoCanvasSizeSubPageScrollingFrame)
+	Right.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(autoCanvasSizeSubPageScrollingFrame)
+
+	SubTab.MouseButton1Down:Connect(Navigation:selectTab())
+	SubTab.MouseEnter:Connect(Navigation:hoverEffect(true))
+	SubTab.MouseLeave:Connect(Navigation:hoverEffect(false))
+	
+	Theme:registerToObjects({
+		{object = Underline, property = "BackgroundColor3", theme = {"PrimaryColor"}},
+		{object = SubTab, property = "TextColor3", theme = {"SecondaryTextColor", "PrimaryColor"}},
+		{object = SubPage.ScrollingFrame, property = "ScrollBarImageColor3", theme = {"ScrollingBarImageColor"}}
+	}, "SubTab")
+
+	local PassingContext = setmetatable({Left = Left, Right = Right, sectionStyle = options.sectionStyle}, Library)
+	return PassingContext
 end
 
--- Library Initialization
-function NexonUI:Init()
-    if self.Initialized then return self end
-    
-    self.ScreenGui = Utility:Create("ScreenGui", {
-        Name = "NexonUI",
-        ResetOnSpawn = false,
-        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    })
-    
-    -- Handle proper parenting for the GUI
-    if RunService:IsStudio() then
-        self.ScreenGui.Parent = Player:WaitForChild("PlayerGui")
-    else
-        pcall(function()
-            self.ScreenGui.Parent = CoreGui
-        end)
-        
-        if not self.ScreenGui.Parent then
-            self.ScreenGui.Parent = Player:WaitForChild("PlayerGui")
-        end
-    end
-    
-    -- Create Notification Container
-    self.NotificationHolder = Utility:Create("Frame", {
-        Name = "NotificationHolder",
-        AnchorPoint = Vector2.new(1, 0),
-        BackgroundTransparency = 1,
-        Position = UDim2.new(1, -20, 0, 20),
-        Size = UDim2.new(0, 300, 1, -40),
-        ZIndex = 10,
-        Parent = self.ScreenGui
-    })
-    
-    Utility:Create("UIListLayout", {
-        Padding = UDim.new(0, 10),
-        FillDirection = Enum.FillDirection.Vertical,
-        HorizontalAlignment = Enum.HorizontalAlignment.Right,
-        SortOrder = Enum.SortOrder.LayoutOrder,
-        VerticalAlignment = Enum.VerticalAlignment.Top,
-        Parent = self.NotificationHolder
-    })
-    
-    self.Initialized = true
-    return self
+function Library:createSection(options: table)
+	Utility:validateOptions(options, {
+		text = {Default = "Section", ExpectedType = "string"},
+		position = {Default = "Left", ExpectedType = "string"},
+	})
+		
+	local Section = Assets.Pages.Section:Clone()
+	Section.Visible = true
+	Section.Parent = self[options.position]
+
+	-- Change section style 
+	local screenSize = workspace.CurrentCamera.ViewportSize
+	if self.sectionStyle == "Single" or (screenSize.X <= 740 and screenSize.Y <= 590) or self.sizeX <= 660 then
+		if (options.position == "Right") then
+			table.insert(self.SectionFolder.Right, {folders = {Left = self.Left, Right = self.Right}, object = Section})
+		end
+		
+		self.Right.Visible = false
+		self.Left.Size = UDim2.fromScale(1, 1)
+		Section.Parent = self.Left
+	end
+
+	-- Store objects to change section style depending on the size of the UI
+	if (options.position == "Right" and self.sectionStyle ~= "Single") then
+		table.insert(self.SectionFolder.Right, {folders = {Left = self.Left, Right = self.Right}, object = Section})
+	end
+
+	if (options.position == "Left" and self.sectionStyle ~= "Single") then
+		table.insert(self.SectionFolder.Left, {folders = {Left = self.Left, Right = self.Right}, object = Section})
+	end
+	
+	local Inner = Section.Inner
+
+	local TextLabel = Inner.TextLabel
+	TextLabel.Text = options.text
+
+	-- Auto size section
+	Section.Inner.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		Section.Size = UDim2.new(1, 0, 0, Section.Inner.UIListLayout.AbsoluteContentSize.Y + 28)
+	end)
+	
+	Theme:registerToObjects({
+		{object = Section, property = "BackgroundColor3", theme = {"Line"}},
+		{object = Inner, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = TextLabel, property = "TextColor3", theme = {"PrimaryTextColor"}},
+	})
+
+	local PassingContext = setmetatable({Section = Inner, ScrollingFrame = Section.Parent.Parent}, Library)
+	return PassingContext
 end
 
--- Create Window
-function NexonUI:CreateWindow(options)
-    self:Init()
-    
-    options = options or {}
-    options.Title = options.Title or "NEXON"
-    options.Size = options.Size or UDim2.new(0, 680, 0, 500)
-    options.Position = options.Position or UDim2.new(0.5, -340, 0.5, -250)
-    
-    local window = {
-        Tabs = {},
-        ActiveTab = nil,
-        TabCount = 0,
-        Toggled = true
-    }
-    
-    -- Create Main Frame
-    window.Frame = Utility:Create("Frame", {
-        Name = "WindowFrame",
-        BackgroundColor3 = self.Theme.Background,
-        BorderSizePixel = 0,
-        Position = options.Position,
-        Size = options.Size,
-        Parent = self.ScreenGui
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, CORNER_RADIUS),
-        Parent = window.Frame
-    })
-    
-    -- Add Shadow
-    Utility:CreateShadow(window.Frame, 2)
-    
-    -- Create Topbar
-    window.TopBar = Utility:Create("Frame", {
-        Name = "TopBar",
-        BackgroundColor3 = self.Theme.TopBar,
-        BorderSizePixel = 0,
-        Size = UDim2.new(1, 0, 0, 40),
-        ZIndex = 2,
-        Parent = window.Frame
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, CORNER_RADIUS),
-        Parent = window.TopBar
-    })
-    
-    -- Bottom frame to fix corner overlap
-    local topBarFix = Utility:Create("Frame", {
-        BackgroundColor3 = self.Theme.TopBar,
-        BorderSizePixel = 0,
-        Position = UDim2.new(0, 0, 1, -CORNER_RADIUS),
-        Size = UDim2.new(1, 0, 0, CORNER_RADIUS),
-        Parent = window.TopBar
-    })
-    
-    -- Logo/Title
-    window.Title = Utility:Create("TextLabel", {
-        Name = "Title",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 15, 0, 0),
-        Size = UDim2.new(0, 200, 1, 0),
-        Font = FONT,
-        Text = options.Title,
-        TextColor3 = self.Theme.Accent,
-        TextSize = TITLE_SIZE,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = window.TopBar
-    })
-    
-    -- Close Button
-    window.CloseButton = Utility:Create("ImageButton", {
-        Name = "CloseButton",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(1, -40, 0, 0),
-        Size = UDim2.new(0, 40, 0, 40),
-        Image = "rbxassetid://10734898835",
-        ImageColor3 = self.Theme.Text,
-        ImageTransparency = 0.2,
-        Parent = window.TopBar
-    })
-    
-    -- Minimize Button
-    window.MinimizeButton = Utility:Create("ImageButton", {
-        Name = "MinimizeButton",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(1, -80, 0, 0),
-        Size = UDim2.new(0, 40, 0, 40),
-        Image = "rbxassetid://10734950110",
-        ImageColor3 = self.Theme.Text,
-        ImageTransparency = 0.2,
-        Parent = window.TopBar
-    })
-    
-    -- Make window draggable by TopBar
-    Utility:MakeDraggable(window.Frame, window.TopBar)
-    
-    -- Container for Tabs and Content
-    window.Container = Utility:Create("Frame", {
-        Name = "Container",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 0, 0, 40),
-        Size = UDim2.new(1, 0, 1, -40),
-        Parent = window.Frame
-    })
-    
-    -- Tab Container (Sidebar)
-    window.TabsFrame = Utility:Create("Frame", {
-        Name = "TabsFrame",
-        BackgroundColor3 = self.Theme.Card,
-        BorderSizePixel = 0,
-        Position = UDim2.new(0, 10, 0, 10),
-        Size = UDim2.new(0, 150, 1, -20),
-        Parent = window.Container
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, CORNER_RADIUS),
-        Parent = window.TabsFrame
-    })
-    
-    -- Tab Buttons Container
-    window.TabButtons = Utility:Create("ScrollingFrame", {
-        Name = "TabButtons",
-        Active = true,
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        Position = UDim2.new(0, 0, 0, 10),
-        Size = UDim2.new(1, 0, 1, -20),
-        CanvasSize = UDim2.new(0, 0, 0, 0),
-        ScrollBarThickness = 0,
-        ScrollingDirection = Enum.ScrollingDirection.Y,
-        Parent = window.TabsFrame
-    })
-    
-    local tabsLayout = Utility:Create("UIListLayout", {
-        Padding = UDim.new(0, 5),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-        Parent = window.TabButtons
-    })
-    
-    Utility:Create("UIPadding", {
-        PaddingLeft = UDim.new(0, 8),
-        PaddingRight = UDim.new(0, 8),
-        Parent = window.TabButtons
-    })
-    
-    -- Update tab buttons canvas size when adding new tabs
-    tabsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        window.TabButtons.CanvasSize = UDim2.new(0, 0, 0, tabsLayout.AbsoluteContentSize.Y + 20)
-    end)
-    
-    -- Content Frame
-    window.Content = Utility:Create("Frame", {
-        Name = "Content",
-        BackgroundColor3 = self.Theme.Card,
-        BorderSizePixel = 0,
-        Position = UDim2.new(0, 170, 0, 10),
-        Size = UDim2.new(1, -180, 1, -20),
-        Parent = window.Container
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, CORNER_RADIUS),
-        Parent = window.Content
-    })
-    
-    -- Handle close button
-    window.CloseButton.MouseButton1Click:Connect(function()
-        Utility:Tween(window.Frame, {
-            Size = UDim2.new(0, window.Frame.AbsoluteSize.X, 0, 0),
-            Position = UDim2.new(
-                window.Frame.Position.X.Scale,
-                window.Frame.Position.X.Offset,
-                window.Frame.Position.Y.Scale,
-                window.Frame.Position.Y.Offset + window.Frame.AbsoluteSize.Y/2
-            )
-        }, 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In, function()
-            window.Frame:Destroy()
-        end)
-    end)
-    
-    -- Handle minimize button
-    local minimized = false
-    window.MinimizeButton.MouseButton1Click:Connect(function()
-        minimized = not minimized
-        if minimized then
-            window.MinimizeButton.Image = "rbxassetid://10734950964" -- Restore icon
-            Utility:Tween(window.Container, {Size = UDim2.new(1, 0, 0, 0)}, 0.3)
-            Utility:Tween(window.Frame, {Size = UDim2.new(0, window.Frame.AbsoluteSize.X, 0, 40)}, 0.3)
-        else
-            window.MinimizeButton.Image = "rbxassetid://10734950110" -- Minimize icon
-            Utility:Tween(window.Frame, {Size = options.Size}, 0.3)
-            Utility:Tween(window.Container, {Size = UDim2.new(1, 0, 1, -40)}, 0.3)
-        end
-    end)
-    
-    -- Add hover effects to buttons
-    local function addButtonEffects(button)
-        button.MouseEnter:Connect(function()
-            Utility:Tween(button, {ImageTransparency = 0}, 0.2)
-        end)
-        
-        button.MouseLeave:Connect(function()
-            Utility:Tween(button, {ImageTransparency = 0.2}, 0.2)
-        end)
-    end
-    
-    addButtonEffects(window.CloseButton)
-    addButtonEffects(window.MinimizeButton)
-    
-    -- Tab functionality
-    function window:AddTab(name, icon)
-        local tab = {
-            Name = name,
-            Sections = {},
-            Elements = {}
-        }
-        
-        window.TabCount = window.TabCount + 1
-        local isFirstTab = window.TabCount == 1
-        
-        -- Create tab button
-        tab.Button = Utility:Create("TextButton", {
-            Name = name .. "Tab",
-            BackgroundColor3 = isFirstTab and NexonUI.Theme.Accent or NexonUI.Theme.Card,
-            BackgroundTransparency = isFirstTab and 0.3 or 0.7,
-            BorderSizePixel = 0,
-            Size = UDim2.new(1, 0, 0, 40),
-            Font = FONT,
-            Text = "  " .. name,
-            TextColor3 = isFirstTab and NexonUI.Theme.Text or NexonUI.Theme.SubText,
-            TextSize = TEXT_SIZE,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            AutoButtonColor = false,
-            LayoutOrder = window.TabCount,
-            Parent = window.TabButtons
-        })
-        
-        Utility:Create("UICorner", {
-            CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-            Parent = tab.Button
-        })
-        
-        -- Add icon if specified
-        if icon then
-            local iconImage = Utility:Create("ImageLabel", {
-                Name = "Icon",
-                BackgroundTransparency = 1,
-                Position = UDim2.new(0, 8, 0.5, 0),
-                Size = UDim2.new(0, 20, 0, 20),
-                AnchorPoint = Vector2.new(0, 0.5),
-                Image = icon,
-                ImageColor3 = isFirstTab and NexonUI.Theme.Text or NexonUI.Theme.SubText,
-                Parent = tab.Button
-            })
-            
-            tab.Button.Text = "      " .. name
-            tab.Icon = iconImage
-        end
-        
-        -- Create tab content
-        tab.Container = Utility:Create("ScrollingFrame", {
-            Name = name .. "Container",
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            Position = UDim2.new(0, 0, 0, 0),
-            Size = UDim2.new(1, 0, 1, 0),
-            CanvasSize = UDim2.new(0, 0, 0, 0),
-            ScrollBarImageColor3 = NexonUI.Theme.Accent,
-            ScrollBarThickness = 3,
-            Visible = isFirstTab,
-            Parent = window.Content
-        })
-        
-        -- Add padding
-        Utility:Create("UIPadding", {
-            PaddingTop = UDim.new(0, 10),
-            PaddingBottom = UDim.new(0, 10),
-            PaddingLeft = UDim.new(0, 10),
-            PaddingRight = UDim.new(0, 10),
-            Parent = tab.Container
-        })
-        
-        -- Create layout for sections and elements
-        local tabLayout = Utility:Create("UIListLayout", {
-            Padding = UDim.new(0, 10),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-            Parent = tab.Container
-        })
-        
-        -- Update canvas size when content changes
-        tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            tab.Container.CanvasSize = UDim2.new(0, 0, 0, tabLayout.AbsoluteContentSize.Y + 20)
-        end)
-        
-        -- Smooth scrolling
-        Utility:SmoothScroll(tab.Container)
-        
-        -- Add ripple effect
-        Utility:Ripple(tab.Button, true)
-        
-        -- Tab button hover effect
-        tab.Button.MouseEnter:Connect(function()
-            if tab.Button.BackgroundColor3 ~= NexonUI.Theme.Accent then
-                Utility:Tween(tab.Button, {
-                    BackgroundTransparency = 0.5,
-                    TextColor3 = NexonUI.Theme.Text
-                }, 0.2)
-                
-                if tab.Icon then
-                    Utility:Tween(tab.Icon, {
-                        ImageColor3 = NexonUI.Theme.Text
-                    }, 0.2)
-                end
-            end
-        end)
-        
-        tab.Button.MouseLeave:Connect(function()
-            if tab.Button.BackgroundColor3 ~= NexonUI.Theme.Accent then
-                Utility:Tween(tab.Button, {
-                    BackgroundTransparency = 0.7,
-                    TextColor3 = NexonUI.Theme.SubText
-                }, 0.2)
-                
-                if tab.Icon then
-                    Utility:Tween(tab.Icon, {
-                        ImageColor3 = NexonUI.Theme.SubText
-                    }, 0.2)
-                end
-            end
-        end)
-        
-        -- Tab selection
-        tab.Button.MouseButton1Click:Connect(function()
-            window:SelectTab(name)
-        end)
-        
-        -- Remember the active tab
-        if isFirstTab then
-            window.ActiveTab = name
-        end
-        
-        -- Store tab in window
-        window.Tabs[name] = tab
-        
-        -- Section creation function
-        function tab:AddSection(sectionName)
-            local section = {}
-            
-            -- Create section frame
-            section.Frame = Utility:Create("Frame", {
-                Name = sectionName .. "Section",
-                BackgroundColor3 = NexonUI.Theme.Section,
-                BorderSizePixel = 0,
-                Size = UDim2.new(1, 0, 0, 40), -- Initial height, expands with content
-                Parent = tab.Container
-            })
-            
-            Utility:Create("UICorner", {
-                CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                Parent = section.Frame
-            })
-            
-            -- Section title
-            section.Title = Utility:Create("TextLabel", {
-                Name = "Title",
-                BackgroundTransparency = 1,
-                Position = UDim2.new(0, 12, 0, 0),
-                Size = UDim2.new(1, -24, 0, 30),
-                Font = FONT,
-                Text = sectionName,
-                TextColor3 = NexonUI.Theme.SubText,
-                TextSize = HEADER_SIZE,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                Parent = section.Frame
-            })
-            
-            -- Section content container
-            section.Container = Utility:Create("Frame", {
-                Name = "Container",
-                BackgroundTransparency = 1,
-                Position = UDim2.new(0, 10, 0, 30),
-                Size = UDim2.new(1, -20, 0, 0), -- Will expand with content
-                Parent = section.Frame
-            })
-            
-            -- Create layout for elements
-            local sectionLayout = Utility:Create("UIListLayout", {
-                Padding = UDim.new(0, 8),
-                SortOrder = Enum.SortOrder.LayoutOrder,
-                Parent = section.Container
-            })
-            
-            -- Resize section based on content
-            sectionLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                section.Container.Size = UDim2.new(1, -20, 0, sectionLayout.AbsoluteContentSize.Y)
-                section.Frame.Size = UDim2.new(1, 0, 0, sectionLayout.AbsoluteContentSize.Y + 40)
-            end)
-            
-            -- Add label element
-            function section:AddLabel(text)
-                local label = {}
-                
-                label.Frame = Utility:Create("Frame", {
-                    Name = "Label",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 20),
-                    Parent = section.Container
-                })
-                
-                label.Text = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    Font = FONT,
-                    Text = text,
-                    TextColor3 = NexonUI.Theme.SubText,
-                    TextSize = TEXT_SIZE,
-                    TextWrapped = true,
-                    Parent = label.Frame
-                })
-                
-                function label:SetText(newText)
-                    label.Text.Text = newText
-                end
-                
-                return label
-            end
-            
-            -- Add button element
-            function section:AddButton(options)
-                options = options or {}
-                options.Text = options.Text or "Button"
-                options.Callback = options.Callback or function() end
-                
-                local button = {}
-                
-                button.Frame = Utility:Create("Frame", {
-                    Name = "Button",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT),
-                    Parent = section.Container
-                })
-                
-                button.Button = Utility:Create("TextButton", {
-                    BackgroundColor3 = NexonUI.Theme.Accent,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    Font = FONT,
-                    TextColor3 = NexonUI.Theme.Text,
-                    Text = options.Text,
-                    TextSize = TEXT_SIZE,
-                    AutoButtonColor = false,
-                    Parent = button.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                    Parent = button.Button
-                })
-                
-                -- Add ripple effect
-                Utility:Ripple(button.Button)
-                
-                -- Button callback
-                button.Button.MouseButton1Click:Connect(function()
-                    options.Callback()
-                end)
-                
-                function button:SetText(newText)
-                    button.Button.Text = newText
-                end
-                
-                return button
-            end
-            
-            -- Add toggle element
-            function section:AddToggle(options)
-                options = options or {}
-                options.Text = options.Text or "Toggle"
-                options.Default = options.Default or false
-                options.Flag = options.Flag or nil
-                options.Callback = options.Callback or function() end
-                
-                local toggle = {}
-                toggle.Value = options.Default
-                
-                toggle.Frame = Utility:Create("Frame", {
-                    Name = "Toggle",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT),
-                    Parent = section.Container
-                })
-                
-                toggle.Label = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, -60, 1, 0),
-                    Font = FONT,
-                    Text = options.Text,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Parent = toggle.Frame
-                })
-                
-                toggle.Background = Utility:Create("Frame", {
-                    Name = "Background",
-                    BackgroundColor3 = toggle.Value and NexonUI.Theme.Accent or NexonUI.Theme.Card,
-                    BorderSizePixel = 0,
-                    Position = UDim2.new(1, -50, 0.5, 0),
-                    Size = UDim2.new(0, 40, 0, 20),
-                    AnchorPoint = Vector2.new(0, 0.5),
-                    Parent = toggle.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(1, 0),
-                    Parent = toggle.Background
-                })
-                
-                toggle.Switch = Utility:Create("Frame", {
-                    Name = "Switch",
-                    BackgroundColor3 = NexonUI.Theme.Text,
-                    BorderSizePixel = 0,
-                    Position = toggle.Value and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0),
-                    Size = UDim2.new(0, 16, 0, 16),
-                    AnchorPoint = Vector2.new(0, 0.5),
-                    Parent = toggle.Background
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(1, 0),
-                    Parent = toggle.Switch
-                })
-                
-                -- Toggle the switch
-                local function updateToggle()
-                    toggle.Value = not toggle.Value
-                    
-                    Utility:Tween(toggle.Background, {
-                        BackgroundColor3 = toggle.Value and NexonUI.Theme.Accent or NexonUI.Theme.Card
-                    }, 0.2)
-                    
-                    Utility:Tween(toggle.Switch, {
-                        Position = toggle.Value and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
-                    }, 0.2)
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = toggle.Value
-                    end
-                    
-                    options.Callback(toggle.Value)
-                end
-                
-                -- Handle clicking anywhere on the toggle frame
-                toggle.Frame.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                        updateToggle()
-                    end
-                end)
-                
-                -- Add to flags if needed
-                if options.Flag then
-                    NexonUI.Flags[options.Flag] = toggle.Value
-                end
-                
-                function toggle:SetValue(value)
-                    if toggle.Value ~= value then
-                        toggle.Value = not value -- Flip it so updateToggle flips it back
-                        updateToggle()
-                    end
-                end
-                
-                return toggle
-            end
-            
-            -- Add slider element
-            function section:AddSlider(options)
-                options = options or {}
-                options.Text = options.Text or "Slider"
-                options.Min = options.Min or 0
-                options.Max = options.Max or 100
-                options.Default = options.Default or options.Min
-                options.Increment = options.Increment or 1
-                options.Flag = options.Flag or nil
-                options.Callback = options.Callback or function() end
-                options.ValueDisplay = options.ValueDisplay ~= nil and options.ValueDisplay or true
-                options.Suffix = options.Suffix or ""
-                
-                local slider = {}
-                slider.Value = options.Default
-                
-                slider.Frame = Utility:Create("Frame", {
-                    Name = "Slider",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT + 15),
-                    Parent = section.Container
-                })
-                
-                slider.Label = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, 0, 0, 20),
-                    Font = FONT,
-                    Text = options.Text,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Parent = slider.Frame
-                })
-                
-                slider.Background = Utility:Create("Frame", {
-                    Name = "Background",
-                    BackgroundColor3 = NexonUI.Theme.Card,
-                    BorderSizePixel = 0,
-                    Position = UDim2.new(0, 0, 0, 25),
-                    Size = UDim2.new(1, 0, 0, 10),
-                    Parent = slider.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(1, 0),
-                    Parent = slider.Background
-                })
-                
-                slider.Fill = Utility:Create("Frame", {
-                    Name = "Fill",
-                    BackgroundColor3 = NexonUI.Theme.Accent,
-                    BorderSizePixel = 0,
-                    Size = UDim2.new((slider.Value - options.Min) / (options.Max - options.Min), 0, 1, 0),
-                    Parent = slider.Background
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(1, 0),
-                    Parent = slider.Fill
-                })
-                
-                slider.Button = Utility:Create("TextButton", {
-                    Name = "Button",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    Text = "",
-                    Parent = slider.Background
-                })
-                
-                if options.ValueDisplay then
-                    slider.Value = Utility:Create("TextLabel", {
-                        BackgroundTransparency = 1,
-                        Position = UDim2.new(1, 0, 0, 0),
-                        Size = UDim2.new(0, 50, 0, 20),
-                        Font = FONT,
-                        Text = tostring(slider.Value) .. options.Suffix,
-                        TextColor3 = NexonUI.Theme.SubText,
-                        TextSize = TEXT_SIZE,
-                        TextXAlignment = Enum.TextXAlignment.Right,
-                        AnchorPoint = Vector2.new(1, 0),
-                        Parent = slider.Frame
-                    })
-                end
-                
-                -- Slider functionality
-                local isDragging = false
-                
-                local function updateSlider(input)
-                    local percent = math.clamp((input.Position.X - slider.Background.AbsolutePosition.X) / slider.Background.AbsoluteSize.X, 0, 1)
-                    
-                    local value = options.Min + ((options.Max - options.Min) * percent)
-                    value = math.floor(value / options.Increment + 0.5) * options.Increment
-                    value = math.clamp(value, options.Min, options.Max)
-                    
-                    if value ~= slider.Value then
-                        slider.Value = value
-                        
-                        Utility:Tween(slider.Fill, {
-                            Size = UDim2.new(percent, 0, 1, 0)
-                        }, 0.1)
-                        
-                        if options.ValueDisplay then
-                            slider.Value.Text = tostring(slider.Value) .. options.Suffix
-                        end
-                        
-                        if options.Flag then
-                            NexonUI.Flags[options.Flag] = slider.Value
-                        end
-                        
-                        options.Callback(slider.Value)
-                    end
-                end
-                
-                slider.Button.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                        isDragging = true
-                        updateSlider(input)
-                    end
-                end)
-                
-                slider.Button.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                        isDragging = false
-                    end
-                end)
-                
-                UserInputService.InputChanged:Connect(function(input)
-                    if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                        updateSlider(input)
-                    end
-                end)
-                
-                -- Add to flags if needed
-                if options.Flag then
-                    NexonUI.Flags[options.Flag] = slider.Value
-                end
-                
-                function slider:SetValue(value)
-                    value = math.clamp(value, options.Min, options.Max)
-                    slider.Value = value
-                    
-                    local percent = (value - options.Min) / (options.Max - options.Min)
-                    
-                    Utility:Tween(slider.Fill, {
-                        Size = UDim2.new(percent, 0, 1, 0)
-                    }, 0.1)
-                    
-                    if options.ValueDisplay then
-                        slider.Value.Text = tostring(value) .. options.Suffix
-                    end
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = value
-                    end
-                    
-                    options.Callback(value)
-                end
-                
-                return slider
-            end
-            
-            -- Add Dropdown element
-            function section:AddDropdown(options)
-                options = options or {}
-                options.Text = options.Text or "Dropdown"
-                options.Default = options.Default or ""
-                options.Items = options.Items or {}
-                options.Flag = options.Flag or nil
-                options.Callback = options.Callback or function() end
-                options.MultiSelect = options.MultiSelect or false
-                
-                local dropdown = {}
-                dropdown.Value = options.MultiSelect and {} or options.Default
-                dropdown.Open = false
-                
-                dropdown.Frame = Utility:Create("Frame", {
-                    Name = "Dropdown",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT),
-                    ClipsDescendants = true,
-                    Parent = section.Container
-                })
-                
-                dropdown.Label = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, 0, 0, 20),
-                    Font = FONT,
-                    Text = options.Text,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Parent = dropdown.Frame
-                })
-                
-                dropdown.Background = Utility:Create("Frame", {
-                    Name = "Background",
-                    BackgroundColor3 = NexonUI.Theme.Card,
-                    Position = UDim2.new(0, 0, 0, 24),
-                    Size = UDim2.new(1, 0, 0, 30),
-                    Parent = dropdown.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                    Parent = dropdown.Background
-                })
-                
-                dropdown.Selected = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 10, 0, 0),
-                    Size = UDim2.new(1, -20, 1, 0),
-                    Font = FONT,
-                    Text = (options.MultiSelect and #dropdown.Value > 0) and table.concat(dropdown.Value, ", ") or dropdown.Value,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    TextTruncate = Enum.TextTruncate.AtEnd,
-                    Parent = dropdown.Background
-                })
-                
-                dropdown.Arrow = Utility:Create("ImageLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(1, -25, 0.5, 0),
-                    Size = UDim2.new(0, 15, 0, 15),
-                    Rotation = 0,
-                    AnchorPoint = Vector2.new(0.5, 0.5),
-                    Image = "rbxassetid://10723407385", -- Down arrow
-                    ImageColor3 = NexonUI.Theme.Text,
-                    Parent = dropdown.Background
-                })
-                
-                dropdown.Button = Utility:Create("TextButton", {
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    Text = "",
-                    Parent = dropdown.Background
-                })
-                
-                dropdown.ItemsHolder = Utility:Create("Frame", {
-                    Name = "ItemsHolder",
-                    BackgroundColor3 = NexonUI.Theme.Card,
-                    Position = UDim2.new(0, 0, 0, 60),
-                    Size = UDim2.new(1, 0, 0, 0),
-                    ClipsDescendants = true,
-                    Visible = false,
-                    Parent = dropdown.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                    Parent = dropdown.ItemsHolder
-                })
-                
-                dropdown.ItemsFrame = Utility:Create("ScrollingFrame", {
-                    Name = "ItemsFrame",
-                    Active = true,
-                    BackgroundTransparency = 1,
-                    BorderSizePixel = 0,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, 0, 1, 0),
-                    CanvasSize = UDim2.new(0, 0, 0, 0),
-                    ScrollBarThickness = 2,
-                    ScrollBarImageColor3 = NexonUI.Theme.Accent,
-                    Parent = dropdown.ItemsHolder
-                })
-                
-                Utility:Create("UIPadding", {
-                    PaddingTop = UDim.new(0, 5),
-                    PaddingBottom = UDim.new(0, 5),
-                    PaddingLeft = UDim.new(0, 5),
-                    PaddingRight = UDim.new(0, 5),
-                    Parent = dropdown.ItemsFrame
-                })
-                
-                local itemsLayout = Utility:Create("UIListLayout", {
-                    Padding = UDim.new(0, 5),
-                    SortOrder = Enum.SortOrder.LayoutOrder,
-                    Parent = dropdown.ItemsFrame
-                })
-                
-                -- Update canvas size when items are added
-                itemsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                    dropdown.ItemsFrame.CanvasSize = UDim2.new(0, 0, 0, itemsLayout.AbsoluteContentSize.Y)
-                end)
-                
-                -- Smooth scrolling
-                Utility:SmoothScroll(dropdown.ItemsFrame)
-                
-                -- Populate items
-                local function createItem(name)
-                    local item = Utility:Create("Frame", {
-                        Name = name .. "Item",
-                        BackgroundTransparency = 1,
-                        Size = UDim2.new(1, 0, 0, 25),
-                        Parent = dropdown.ItemsFrame
-                    })
-                    
-                    local button = Utility:Create("TextButton", {
-                        BackgroundColor3 = NexonUI.Theme.Section,
-                        Size = UDim2.new(1, 0, 1, 0),
-                        Font = FONT,
-                        Text = name,
-                        TextColor3 = NexonUI.Theme.Text,
-                        TextSize = TEXT_SIZE,
-                        Parent = item
-                    })
-                    
-                    Utility:Create("UICorner", {
-                        CornerRadius = UDim.new(0, CORNER_RADIUS - 3),
-                        Parent = button
-                    })
-                    
-                    -- Add ripple effect
-                    Utility:Ripple(button)
-                    
-                    -- Handle multiselect
-                    if options.MultiSelect then
-                        local selectedIndicator = Utility:Create("Frame", {
-                            BackgroundColor3 = NexonUI.Theme.Accent,
-                            Position = UDim2.new(1, -25, 0.5, 0),
-                            Size = UDim2.new(0, 16, 0, 16),
-                            AnchorPoint = Vector2.new(0.5, 0.5),
-                            Parent = button
-                        })
-                        
-                        Utility:Create("UICorner", {
-                            CornerRadius = UDim.new(0, 4),
-                            Parent = selectedIndicator
-                        })
-                        
-                        local check = Utility:Create("ImageLabel", {
-                            BackgroundTransparency = 1,
-                            Size = UDim2.new(1, 0, 1, 0),
-                            Image = "rbxassetid://10723441859", -- Checkmark
-                            ImageColor3 = NexonUI.Theme.Text,
-                            ImageTransparency = 1, -- Hidden initially
-                            Parent = selectedIndicator
-                        })
-                        
-                        -- Update initial state if in selected list
-                        if table.find(dropdown.Value, name) then
-                            check.ImageTransparency = 0
-                        end
-                        
-                        button.MouseButton1Click:Connect(function()
-                            local found = table.find(dropdown.Value, name)
-                            if found then
-                                table.remove(dropdown.Value, found)
-                                Utility:Tween(check, {ImageTransparency = 1}, 0.2)
-                            else
-                                table.insert(dropdown.Value, name)
-                                Utility:Tween(check, {ImageTransparency = 0}, 0.2)
-                            end
-                            
-                            dropdown.Selected.Text = #dropdown.Value > 0 and table.concat(dropdown.Value, ", ") or "None"
-                            
-                            if options.Flag then
-                                NexonUI.Flags[options.Flag] = dropdown.Value
-                            end
-                            
-                            options.Callback(dropdown.Value)
-                        end)
-                    else
-                        button.MouseButton1Click:Connect(function()
-                            dropdown:Toggle() -- Close dropdown
-                            
-                            dropdown.Value = name
-                            dropdown.Selected.Text = name
-                            
-                            if options.Flag then
-                                NexonUI.Flags[options.Flag] = name
-                            end
-                            
-                            options.Callback(name)
-                        end)
-                    end
-                    
-                    return item
-                end
-                
-                -- Toggle dropdown state
-                function dropdown:Toggle()
-                    dropdown.Open = not dropdown.Open
-                    
-                    local targetSize = dropdown.Open and 
-                        math.min(120, #options.Items * 30 + 10) or 0
-                    
-                    if dropdown.Open then
-                        dropdown.ItemsHolder.Visible = true
-                        
-                        Utility:Tween(dropdown.ItemsHolder, {
-                            Size = UDim2.new(1, 0, 0, targetSize)
-                        }, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-                        
-                        Utility:Tween(dropdown.Frame, {
-                            Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT + targetSize + 6)
-                        }, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-                        
-                        Utility:Tween(dropdown.Arrow, {Rotation = 180}, 0.3)
-                    else
-                        Utility:Tween(dropdown.ItemsHolder, {
-                            Size = UDim2.new(1, 0, 0, 0)
-                        }, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out, function()
-                            dropdown.ItemsHolder.Visible = false
-                        end)
-                        
-                        Utility:Tween(dropdown.Frame, {
-                            Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT)
-                        }, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-                        
-                        Utility:Tween(dropdown.Arrow, {Rotation = 0}, 0.3)
-                    end
-                end
-                
-                -- Add items from options
-                for _, item in ipairs(options.Items) do
-                    createItem(item)
-                end
-                
-                -- Toggle dropdown when button is clicked
-                dropdown.Button.MouseButton1Click:Connect(function()
-                    dropdown:Toggle()
-                end)
-                
-                -- Initialize flags if needed
-                if options.Flag then
-                    NexonUI.Flags[options.Flag] = dropdown.Value
-                end
-                
-                -- API
-                function dropdown:SetValue(value)
-                    if options.MultiSelect and type(value) == "table" then
-                        dropdown.Value = value
-                        dropdown.Selected.Text = #value > 0 and table.concat(value, ", ") or "None"
-                        
-                        -- Update visual indicators
-                        for _, item in ipairs(dropdown.ItemsFrame:GetChildren()) do
-                            if item:IsA("Frame") and item.Name:match("Item$") then
-                                local itemName = item.Name:gsub("Item$", "")
-                                local indicator = item:FindFirstChild("TextButton"):FindFirstChild("Frame")
-                                
-                                if indicator and indicator:FindFirstChild("ImageLabel") then
-                                    local check = indicator.ImageLabel
-                                    if table.find(value, itemName) then
-                                        check.ImageTransparency = 0
-                                    else
-                                        check.ImageTransparency = 1
-                                    end
-                                end
-                            end
-                        end
-                    elseif not options.MultiSelect then
-                        dropdown.Value = value
-                        dropdown.Selected.Text = value
-                    end
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = dropdown.Value
-                    end
-                    
-                    options.Callback(dropdown.Value)
-                end
-                
-                function dropdown:AddItem(item)
-                    if table.find(options.Items, item) then return end
-                    
-                    table.insert(options.Items, item)
-                    createItem(item)
-                end
-                
-                function dropdown:RemoveItem(item)
-                    local index = table.find(options.Items, item)
-                    if not index then return end
-                    
-                    table.remove(options.Items, index)
-                    
-                    -- Remove from UI
-                    for _, child in ipairs(dropdown.ItemsFrame:GetChildren()) do
-                        if child.Name == item.."Item" then
-                            child:Destroy()
-                            break
-                        end
-                    end
-                    
-                    -- Remove from value if selected
-                    if options.MultiSelect then
-                        local valueIndex = table.find(dropdown.Value, item)
-                        if valueIndex then
-                            table.remove(dropdown.Value, valueIndex)
-                            dropdown.Selected.Text = #dropdown.Value > 0 and table.concat(dropdown.Value, ", ") or "None"
-                        end
-                    elseif dropdown.Value == item then
-                        dropdown.Value = ""
-                        dropdown.Selected.Text = "None"
-                    end
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = dropdown.Value
-                    end
-                    
-                    options.Callback(dropdown.Value)
-                end
-                
-                function dropdown:Clear()
-                    dropdown.Value = options.MultiSelect and {} or ""
-                    dropdown.Selected.Text = "None"
-                    
-                    -- Clear UI
-                    for _, child in ipairs(dropdown.ItemsFrame:GetChildren()) do
-                        if child:IsA("Frame") then
-                            child:Destroy()
-                        end
-                    end
-                    
-                    options.Items = {}
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = dropdown.Value
-                    end
-                    
-                    options.Callback(dropdown.Value)
-                end
-                
-                function dropdown:Refresh(items)
-                    dropdown:Clear()
-                    
-                    -- Add new items
-                    options.Items = items
-                    for _, item in ipairs(items) do
-                        createItem(item)
-                    end
-                end
-                
-                return dropdown
-            end
-            
-            -- Add textbox element
-            function section:AddTextbox(options)
-                options = options or {}
-                options.Text = options.Text or "Textbox"
-                options.Default = options.Default or ""
-                options.Placeholder = options.Placeholder or "Enter text..."
-                options.Flag = options.Flag or nil
-                options.Callback = options.Callback or function() end
-                
-                local textbox = {}
-                textbox.Value = options.Default
-                
-                textbox.Frame = Utility:Create("Frame", {
-                    Name = "Textbox",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT),
-                    Parent = section.Container
-                })
-                
-                textbox.Label = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, 0, 0, 20),
-                    Font = FONT,
-                    Text = options.Text,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Parent = textbox.Frame
-                })
-                
-                textbox.Background = Utility:Create("Frame", {
-                    Name = "Background",
-                    BackgroundColor3 = NexonUI.Theme.Card,
-                    Position = UDim2.new(0, 0, 0, 24),
-                    Size = UDim2.new(1, 0, 0, 30),
-                    Parent = textbox.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                    Parent = textbox.Background
-                })
-                
-                textbox.Input = Utility:Create("TextBox", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 10, 0, 0),
-                    Size = UDim2.new(1, -20, 1, 0),
-                    Font = FONT,
-                    Text = options.Default,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    PlaceholderText = options.Placeholder,
-                    PlaceholderColor3 = NexonUI.Theme.SubText,
-                    ClearTextOnFocus = false,
-                    Parent = textbox.Background
-                })
-                
-                -- Handle textbox focus
-                textbox.Input.Focused:Connect(function()
-                    Utility:Tween(textbox.Background, {
-                        BackgroundColor3 = NexonUI.Theme.Accent
-                    }, 0.2)
-                end)
-                
-                textbox.Input.FocusLost:Connect(function(enterPressed)
-                    Utility:Tween(textbox.Background, {
-                        BackgroundColor3 = NexonUI.Theme.Card
-                    }, 0.2)
-                    
-                    if textbox.Value ~= textbox.Input.Text then
-                        textbox.Value = textbox.Input.Text
-                        
-                        if options.Flag then
-                            NexonUI.Flags[options.Flag] = textbox.Value
-                        end
-                        
-                        options.Callback(textbox.Value, enterPressed)
-                    end
-                end)
-                
-                -- Initialize flags if needed
-                if options.Flag then
-                    NexonUI.Flags[options.Flag] = textbox.Value
-                end
-                
-                -- API
-                function textbox:SetValue(value)
-                    textbox.Value = value
-                    textbox.Input.Text = value
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = value
-                    end
-                    
-                    options.Callback(value, false)
-                end
-                
-                return textbox
-            end
-            
-            -- Add keybind element
-            function section:AddKeybind(options)
-                options = options or {}
-                options.Text = options.Text or "Keybind"
-                options.Default = options.Default or Enum.KeyCode.Unknown
-                options.Flag = options.Flag or nil
-                options.Callback = options.Callback or function() end
-                
-                local keybind = {}
-                keybind.Value = options.Default
-                keybind.Listening = false
-                
-                keybind.Frame = Utility:Create("Frame", {
-                    Name = "Keybind",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT),
-                    Parent = section.Container
-                })
-                
-                keybind.Label = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, -80, 1, 0),
-                    Font = FONT,
-                    Text = options.Text,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Parent = keybind.Frame
-                })
-                
-                keybind.Background = Utility:Create("Frame", {
-                    Name = "Background",
-                    BackgroundColor3 = NexonUI.Theme.Card,
-                    Position = UDim2.new(1, -70, 0.5, 0),
-                    Size = UDim2.new(0, 70, 0, 25),
-                    AnchorPoint = Vector2.new(0, 0.5),
-                    Parent = keybind.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                    Parent = keybind.Background
-                })
-                
-                keybind.Button = Utility:Create("TextButton", {
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    Font = FONT,
-                    Text = keybind.Value ~= Enum.KeyCode.Unknown and keybind.Value.Name or "None",
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    Parent = keybind.Background
-                })
-                
-                -- Ripple effect
-                Utility:Ripple(keybind.Button)
-                
-                -- Handle keybind button click
-                keybind.Button.MouseButton1Click:Connect(function()
-                    if keybind.Listening then return end
-                    
-                    keybind.Listening = true
-                    keybind.Button.Text = "..."
-                    
-                    Utility:Tween(keybind.Background, {
-                        BackgroundColor3 = NexonUI.Theme.Accent
-                    }, 0.2)
-                end)
-                
-                -- Listen for key press
-                UserInputService.InputBegan:Connect(function(input, gameProcessed)
-                    if keybind.Listening and input.UserInputType == Enum.UserInputType.Keyboard then
-                        keybind.Value = input.KeyCode
-                        keybind.Button.Text = input.KeyCode.Name
-                        keybind.Listening = false
-                        
-                        Utility:Tween(keybind.Background, {
-                            BackgroundColor3 = NexonUI.Theme.Card
-                        }, 0.2)
-                        
-                        if options.Flag then
-                            NexonUI.Flags[options.Flag] = keybind.Value
-                        end
-                        
-                        options.Callback(keybind.Value)
-                    elseif not gameProcessed and input.KeyCode == keybind.Value then
-                        options.Callback(keybind.Value)
-                    end
-                end)
-                
-                -- Initialize flags if needed
-                if options.Flag then
-                    NexonUI.Flags[options.Flag] = keybind.Value
-                end
-                
-                -- API
-                function keybind:SetValue(value)
-                    keybind.Value = value
-                    keybind.Button.Text = value ~= Enum.KeyCode.Unknown and value.Name or "None"
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = value
-                    end
-                    
-                    options.Callback(value)
-                end
-                
-                return keybind
-            end
-            
-            -- Add ColorPicker element
-            function section:AddColorPicker(options)
-                options = options or {}
-                options.Text = options.Text or "Color Picker"
-                options.Default = options.Default or Color3.fromRGB(255, 255, 255)
-                options.Flag = options.Flag or nil
-                options.Callback = options.Callback or function() end
-                
-                local colorPicker = {}
-                colorPicker.Value = options.Default
-                colorPicker.Open = false
-                
-                colorPicker.Frame = Utility:Create("Frame", {
-                    Name = "ColorPicker",
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, ELEMENT_HEIGHT),
-                    Parent = section.Container
-                })
-                
-                colorPicker.Label = Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 0, 0, 0),
-                    Size = UDim2.new(1, -40, 1, 0),
-                    Font = FONT,
-                    Text = options.Text,
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    Parent = colorPicker.Frame
-                })
-                
-                colorPicker.Display = Utility:Create("Frame", {
-                    Name = "Display",
-                    BackgroundColor3 = colorPicker.Value,
-                    BorderSizePixel = 0,
-                    Position = UDim2.new(1, -30, 0.5, 0),
-                    Size = UDim2.new(0, 30, 0, 30),
-                    AnchorPoint = Vector2.new(0, 0.5),
-                    Parent = colorPicker.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS - 2),
-                    Parent = colorPicker.Display
-                })
-                
-                colorPicker.Button = Utility:Create("TextButton", {
-                    BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 1, 0),
-                    Text = "",
-                    Parent = colorPicker.Display
-                })
-                
-                -- Create color picker panel (appears when clicked)
-                colorPicker.Panel = Utility:Create("Frame", {
-                    Name = "Panel",
-                    BackgroundColor3 = NexonUI.Theme.Card,
-                    Position = UDim2.new(1, 5, 0, 0),
-                    Size = UDim2.new(0, 200, 0, 200),
-                    Visible = false,
-                    ZIndex = 10,
-                    Parent = colorPicker.Frame
-                })
-                
-                Utility:Create("UICorner", {
-                    CornerRadius = UDim.new(0, CORNER_RADIUS),
-                    Parent = colorPicker.Panel
-                })
-                
-                -- Add shadow
-                Utility:CreateShadow(colorPicker.Panel, 1)
-                
-                -- Add basic color picker elements
-                -- This is a simplified version - In a complete implementation,
-                -- we would add HSV picker, RGB sliders, etc.
-                
-                -- Add some preset colors
-                local presets = {
-                    Color3.fromRGB(255, 255, 255), -- White
-                    Color3.fromRGB(0, 0, 0),       -- Black
-                    Color3.fromRGB(255, 0, 0),     -- Red
-                    Color3.fromRGB(0, 255, 0),     -- Green
-                    Color3.fromRGB(0, 0, 255),     -- Blue
-                    Color3.fromRGB(255, 255, 0),   -- Yellow
-                    Color3.fromRGB(255, 0, 255),   -- Magenta
-                    Color3.fromRGB(0, 255, 255),   -- Cyan
-                    NexonUI.Theme.Accent,          -- Theme accent
-                }
-                
-                -- Add title
-                Utility:Create("TextLabel", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 10, 0, 5),
-                    Size = UDim2.new(1, -20, 0, 20),
-                    Font = FONT,
-                    Text = "Choose Color",
-                    TextColor3 = NexonUI.Theme.Text,
-                    TextSize = TEXT_SIZE,
-                    ZIndex = 10,
-                    Parent = colorPicker.Panel
-                })
-                
-                -- Add preset colors
-                local presetsContainer = Utility:Create("Frame", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 10, 0, 30),
-                    Size = UDim2.new(1, -20, 0, 60),
-                    ZIndex = 10,
-                    Parent = colorPicker.Panel
-                })
-                
-                local presetsLayout = Utility:Create("UIGridLayout", {
-                    CellPadding = UDim2.new(0, 5, 0, 5),
-                    CellSize = UDim2.new(0, 30, 0, 30),
-                    SortOrder = Enum.SortOrder.LayoutOrder,
-                    Parent = presetsContainer
-                })
-                
-                -- Create preset buttons
-                for i, color in ipairs(presets) do
-                    local presetButton = Utility:Create("TextButton", {
-                        BackgroundColor3 = color,
-                        BorderSizePixel = 0,
-                        Text = "",
-                        ZIndex = 10,
-                        Parent = presetsContainer
-                    })
-                    
-                    Utility:Create("UICorner", {
-                        CornerRadius = UDim.new(0, CORNER_RADIUS - 3),
-                        Parent = presetButton
-                    })
-                    
-                    -- Button click
-                    presetButton.MouseButton1Click:Connect(function()
-                        colorPicker.Value = color
-                        colorPicker.Display.BackgroundColor3 = color
-                        
-                        if options.Flag then
-                            NexonUI.Flags[options.Flag] = color
-                        end
-                        
-                        options.Callback(color)
-                    end)
-                end
-                
-                -- Add RGB inputs
-                local rgbContainer = Utility:Create("Frame", {
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 10, 0, 100),
-                    Size = UDim2.new(1, -20, 0, 90),
-                    ZIndex = 10,
-                    Parent = colorPicker.Panel
-                })
-                
-                local labels = {"R:", "G:", "B:"}
-                local rgbValues = {
-                    math.floor(colorPicker.Value.R * 255),
-                    math.floor(colorPicker.Value.G * 255),
-                    math.floor(colorPicker.Value.B * 255)
-                }
-                
-                local rgbInputs = {}
-                
-                for i, label in ipairs(labels) do
-                    local labelText = Utility:Create("TextLabel", {
-                        BackgroundTransparency = 1,
-                        Position = UDim2.new(0, 0, 0, (i-1) * 30),
-                        Size = UDim2.new(0, 20, 0, 25),
-                        Font = FONT,
-                        Text = label,
-                        TextColor3 = NexonUI.Theme.Text,
-                        TextSize = TEXT_SIZE,
-                        ZIndex = 10,
-                        Parent = rgbContainer
-                    })
-                    
-                    local inputBackground = Utility:Create("Frame", {
-                        BackgroundColor3 = NexonUI.Theme.Background,
-                        Position = UDim2.new(0, 30, 0, (i-1) * 30),
-                        Size = UDim2.new(1, -40, 0, 25),
-                        ZIndex = 10,
-                        Parent = rgbContainer
-                    })
-                    
-                    Utility:Create("UICorner", {
-                        CornerRadius = UDim.new(0, CORNER_RADIUS - 3),
-                        Parent = inputBackground
-                    })
-                    
-                    local input = Utility:Create("TextBox", {
-                        BackgroundTransparency = 1,
-                        Position = UDim2.new(0, 10, 0, 0),
-                        Size = UDim2.new(1, -20, 1, 0),
-                        Font = FONT,
-                        Text = tostring(rgbValues[i]),
-                        TextColor3 = NexonUI.Theme.Text,
-                        TextSize = TEXT_SIZE,
-                        ZIndex = 10,
-                        Parent = inputBackground
-                    })
-                    
-                    rgbInputs[i] = input
-                    
-                    -- Handle input changes
-                    input.FocusLost:Connect(function(enterPressed)
-                        local value = tonumber(input.Text)
-                        if value then
-                            value = math.clamp(value, 0, 255)
-                            input.Text = tostring(value)
-                            rgbValues[i] = value
-                            
-                            local newColor = Color3.fromRGB(
-                                rgbValues[1],
-                                rgbValues[2],
-                                rgbValues[3]
-                            )
-                            
-                            colorPicker.Value = newColor
-                            colorPicker.Display.BackgroundColor3 = newColor
-                            
-                            if options.Flag then
-                                NexonUI.Flags[options.Flag] = newColor
-                            end
-                            
-                            options.Callback(newColor)
-                        else
-                            input.Text = tostring(rgbValues[i])
-                        end
-                    end)
-                end
-                
-                -- Toggle color picker panel
-                local function togglePanel()
-                    colorPicker.Open = not colorPicker.Open
-                    colorPicker.Panel.Visible = colorPicker.Open
-                end
-                
-                -- Button click to open picker
-                colorPicker.Button.MouseButton1Click:Connect(togglePanel)
-                
-                -- Close panel when clicking elsewhere
-                UserInputService.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                        if colorPicker.Open then
-                            local position = input.Position
-                            local panelPosition = colorPicker.Panel.AbsolutePosition
-                            local panelSize = colorPicker.Panel.AbsoluteSize
-                            
-                            if position.X < panelPosition.X or
-                               position.Y < panelPosition.Y or
-                               position.X > panelPosition.X + panelSize.X or
-                               position.Y > panelPosition.Y + panelSize.Y then
-                                
-                                if position.X < colorPicker.Display.AbsolutePosition.X or
-                                   position.Y < colorPicker.Display.AbsolutePosition.Y or
-                                   position.X > colorPicker.Display.AbsolutePosition.X + colorPicker.Display.AbsoluteSize.X or
-                                   position.Y > colorPicker.Display.AbsolutePosition.Y + colorPicker.Display.AbsoluteSize.Y then
-                                    
-                                    togglePanel()
-                                end
-                            end
-                        end
-                    end
-                end)
-                
-                -- Initialize flags if needed
-                if options.Flag then
-                    NexonUI.Flags[options.Flag] = colorPicker.Value
-                end
-                
-                -- API
-                function colorPicker:SetValue(color)
-                    colorPicker.Value = color
-                    colorPicker.Display.BackgroundColor3 = color
-                    
-                    -- Update RGB inputs
-                    rgbInputs[1].Text = tostring(math.floor(color.R * 255))
-                    rgbInputs[2].Text = tostring(math.floor(color.G * 255))
-                    rgbInputs[3].Text = tostring(math.floor(color.B * 255))
-                    
-                    rgbValues = {
-                        math.floor(color.R * 255),
-                        math.floor(color.G * 255),
-                        math.floor(color.B * 255)
-                    }
-                    
-                    if options.Flag then
-                        NexonUI.Flags[options.Flag] = color
-                    end
-                    
-                    options.Callback(color)
-                end
-                
-                return colorPicker
-            end
-            
-            return section
-        end
-        
-        return tab
-    end
-    
-    -- Select a tab by name
-    function window:SelectTab(tabName)
-        if self.Tabs[tabName] then
-            if self.ActiveTab == tabName then
-                return
-            end
-            
-            -- Deselect all tabs
-            for name, tab in pairs(self.Tabs) do
-                if name ~= tabName then
-                    Utility:Tween(tab.Button, {
-                        BackgroundColor3 = NexonUI.Theme.Card,
-                        BackgroundTransparency = 0.7,
-                        TextColor3 = NexonUI.Theme.SubText
-                    }, 0.3)
-                    
-                    if tab.Icon then
-                        Utility:Tween(tab.Icon, {
-                            ImageColor3 = NexonUI.Theme.SubText
-                        }, 0.3)
-                    end
-                    
-                    tab.Container.Visible = false
-                end
-            end
-            
-            -- Select target tab
-            local targetTab = self.Tabs[tabName]
-            Utility:Tween(targetTab.Button, {
-                BackgroundColor3 = NexonUI.Theme.Accent,
-                BackgroundTransparency = 0.3,
-                TextColor3 = NexonUI.Theme.Text
-            }, 0.3)
-            
-            if targetTab.Icon then
-                Utility:Tween(targetTab.Icon, {
-                    ImageColor3 = NexonUI.Theme.Text
-                }, 0.3)
-            end
-            
-            targetTab.Container.Visible = true
-            self.ActiveTab = tabName
-        end
-    end
-    
-    table.insert(self.Windows, window)
-    return window
-end
--- ฟังก์ชัน CreateToggleButton สำหรับสร้างปุ่มเปิด/ปิด UI สวยๆ
-function NexonUI:CreateToggleButton()
-    -- สร้างปุ่มลอยบนพื้นที่ว่าง
-    local toggleButton = Utility:Create("ImageButton", {
-        Name = "ToggleButton",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 20, 0.5, -25),
-        Size = UDim2.new(0, 50, 0, 50),
-        Image = "rbxassetid://7733658504", -- ไอคอน Menu (เปลี่ยน ID ตามต้องการ)
-        ImageColor3 = self.Theme.Accent,
-        ZIndex = 1000,
-        Parent = self.ScreenGui
-    })
-    
-    -- เพิ่มเอฟเฟคเงาให้กับปุ่ม
-    local shadow = Utility:Create("ImageLabel", {
-        Name = "Shadow",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, 0, 0.5, 0),
-        Size = UDim2.new(1.5, 0, 1.5, 0),
-        Image = "rbxassetid://7743878857", -- รูปเงากลม
-        ImageColor3 = SHADOW_COLOR,
-        ImageTransparency = 0.4,
-        ZIndex = 999,
-        Parent = toggleButton
-    })
-    
-    -- เพิ่มวงกลมเรืองแสงรอบปุ่ม
-    local glow = Utility:Create("ImageLabel", {
-        Name = "Glow",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, 0, 0.5, 0),
-        Size = UDim2.new(1.7, 0, 1.7, 0),
-        Image = "rbxassetid://7743878857", -- รูปวงกลม
-        ImageColor3 = self.Theme.Accent,
-        ImageTransparency = 0.7,
-        ZIndex = 998,
-        Parent = toggleButton
-    })
-    
-    -- สถานะเปิด/ปิด UI
-    local isOpen = true
-    
-    -- ฟังก์ชั่นเปิด/ปิด UI
-    local function toggleUI()
-        isOpen = not isOpen
-        
-        -- หมุนปุ่มเป็นเอฟเฟค
-        Utility:Tween(toggleButton, {Rotation = toggleButton.Rotation + 180}, 0.4, Enum.EasingStyle.Back)
-        
-        -- เปลี่ยนสีปุ่มตามสถานะ
-        local targetColor = isOpen and self.Theme.Accent or self.Theme.Error
-        Utility:Tween(toggleButton, {ImageColor3 = targetColor}, 0.3)
-        Utility:Tween(glow, {ImageColor3 = targetColor}, 0.3)
-        
-        -- สร้างเอฟเฟคเรืองแสงเมื่อกด
-        Utility:Tween(glow, {ImageTransparency = 0.5, Size = UDim2.new(2, 0, 2, 0)}, 0.2)
-        task.delay(0.2, function()
-            Utility:Tween(glow, {ImageTransparency = 0.7, Size = UDim2.new(1.7, 0, 1.7, 0)}, 0.2)
-        end)
-        
-        -- เลื่อน UI ออกจากหน้าจอหรือกลับเข้ามา
-        for _, window in ipairs(self.Windows) do
-            if isOpen then
-                -- เลื่อน UI กลับเข้ามา
-                Utility:Tween(window.Frame, {
-                    Position = window.OriginalPosition or UDim2.new(0.5, -window.Frame.AbsoluteSize.X/2, 0.5, -window.Frame.AbsoluteSize.Y/2)
-                }, 0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-            else
-                -- บันทึกตำแหน่งปัจจุบัน
-                window.OriginalPosition = window.Frame.Position
-                
-                -- เลื่อน UI ออกไปนอกหน้าจอ
-                Utility:Tween(window.Frame, {
-                    Position = UDim2.new(-1, 0, window.Frame.Position.Y.Scale, window.Frame.Position.Y.Offset)
-                }, 0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
-            end
-        end
-    end
-    
-    -- เอฟเฟคเมื่อนำเมาส์ไปวาง
-    toggleButton.MouseEnter:Connect(function()
-        Utility:Tween(toggleButton, {Size = UDim2.new(0, 60, 0, 60)}, 0.3, Enum.EasingStyle.Back)
-        Utility:Tween(glow, {ImageTransparency = 0.5}, 0.3)
-    end)
-    
-    toggleButton.MouseLeave:Connect(function()
-        Utility:Tween(toggleButton, {Size = UDim2.new(0, 50, 0, 50)}, 0.3, Enum.EasingStyle.Back)
-        Utility:Tween(glow, {ImageTransparency = 0.7}, 0.3)
-    end)
-    
-    -- เรียกใช้ฟังก์ชั่นเมื่อคลิกปุ่ม
-    toggleButton.MouseButton1Click:Connect(toggleUI)
-    
-    -- สร้าง API สำหรับเรียกใช้จากภายนอก
-    local api = {
-        Toggle = toggleUI,
-        SetState = function(state)
-            if state ~= isOpen then
-                toggleUI()
-            end
-        end,
-        GetState = function()
-            return isOpen
-        end,
-        Button = toggleButton
-    }
-    
-    -- ลงทะเบียนปุ่มกับ UI
-    self.ToggleButton = api
-    
-    return api
+function Library:createToggle(options: table, parent, scrollingFrame)
+	Utility:validateOptions(options, {
+		text = {Default = "Toggle", ExpectedType = "string"},
+		state = {Default = false, ExpectedType = "boolean"},
+		callback = {Default = function() end, ExpectedType = "function"}
+	})
+
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+
+	local Toggle = Assets.Elements.Toggle:Clone()
+	Toggle.Visible = true
+	Toggle.Parent = parent or self.Section
+
+	local TextLabel = Toggle.TextLabel
+	TextLabel.Text = options.text
+	
+	local ImageButton = TextLabel.ImageButton
+	local TextButton = TextLabel.TextButton
+	local Background = TextButton.Background
+	local Circle = Background.Circle
+
+	local function tweenToggleAssets(backgroundColor: Color3, circleColor: Color3, anchorPoint: Vector2, position: UDim2)
+		Utility:tween(Background, {BackgroundColor3 = backgroundColor}, 0.2):Play()
+		Utility:tween(Circle, {BackgroundColor3 = circleColor, AnchorPoint = anchorPoint, Position = position}, 0.2):Play()
+	end
+	
+	local circleOn = false
+
+	local Context = Utility:validateContext({
+		state = {Value = options.state, ExpectedType = "boolean"},
+		callback = {Value = options.callback, ExpectedType = "function"},
+
+		switchOff = {Value = function()
+			tweenToggleAssets(Theme.SecondaryBackgroundColor, Theme.PrimaryBackgroundColor, Vector2.new(0, 0.5), UDim2.fromScale(0, 0.5), 0.2)
+			circleOn = false
+		end, ExpectedType = "function"},
+
+		switchOn = {Value = function()
+			tweenToggleAssets(Theme.PrimaryColor, Theme.TertiaryBackgroundColor, Vector2.new(1, 0.5), UDim2.fromScale(1, 0.5), 0.2)
+			circleOn = true
+		end, ExpectedType = "function"}
+	})
+
+	local Toggle = Modules.Toggle.new(Context)
+	Toggle:updateState({state = options.state})
+	TextButton.MouseButton1Down:Connect(Toggle:switch())
+	
+	Theme:registerToObjects({
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Background, property = "BackgroundColor3", theme = {"PrimaryColor", "SecondaryBackgroundColor"}},
+		{object = Circle, property = "BackgroundColor3", theme = {"TertiaryBackgroundColor", "PrimaryBackgroundColor"}, circleOn = circleOn},
+		{object = ImageButton, property = "ImageColor3", theme = {"SecondaryTextColor"}},
+	})
+
+	shared.Flags.Toggle[options.text] = {
+		getState = function(self)
+			return Context.state
+		end,
+
+		updateState = function(self, options: table)
+			Toggle:updateState(options)
+		end,
+	}
+
+	return self:createAddons(options.text, ImageButton, scrollingFrame, {
+		getState = function(self)
+			return Context.state
+		end,
+
+		updateState = function(self, options: table)
+			Toggle:updateState(options)
+		end,
+	})
 end
 
--- โค้ดตัวอย่างการใช้งาน:
--- local toggleButton = NexonUI:CreateToggleButton()
--- 
--- -- เปิดใช้งานฟังก์ชันผ่าน API
--- toggleButton:Toggle() -- สลับสถานะเปิด/ปิด
--- toggleButton:SetState(true) -- กำหนดให้เปิด UI
--- toggleButton:SetState(false) -- กำหนดให้ปิด UI
--- local isOpen = toggleButton:GetState() -- เช็คสถานะ
--- Notification system
-function NexonUI:Notify(options)
-    self:Init()
-    
-    options = options or {}
-    options.Title = options.Title or "Notification"
-    options.Content = options.Content or "This is a notification."
-    options.Duration = options.Duration or 5
-    options.Type = options.Type or "Info" -- Info, Success, Warning, Error
-    
-    -- Determine color based on type
-    local accentColor
-    if options.Type == "Success" then
-        accentColor = self.Theme.Success
-    elseif options.Type == "Warning" then
-        accentColor = self.Theme.Warning
-    elseif options.Type == "Error" then
-        accentColor = self.Theme.Error
-    else
-        accentColor = self.Theme.Accent
-    end
-    
-    -- Create notification frame
-    local notification = {}
-    
-    notification.Frame = Utility:Create("Frame", {
-        Name = "Notification",
-        AnchorPoint = Vector2.new(1, 0),
-        BackgroundColor3 = self.Theme.Card,
-        Position = UDim2.new(1, 20, 0, 0), -- Start outside screen
-        Size = UDim2.new(0, 300, 0, 80),
-        Parent = self.NotificationHolder
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, CORNER_RADIUS),
-        Parent = notification.Frame
-    })
-    
-    -- Add shadow
-    Utility:CreateShadow(notification.Frame, 1)
-    
-    -- Add color accent bar
-    notification.Accent = Utility:Create("Frame", {
-        Name = "Accent",
-        BackgroundColor3 = accentColor,
-        Size = UDim2.new(0, 4, 1, 0),
-        Parent = notification.Frame
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, CORNER_RADIUS),
-        Parent = notification.Accent
-    })
-    
-    -- Add title
-    notification.Title = Utility:Create("TextLabel", {
-        Name = "Title",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 15, 0, 10),
-        Size = UDim2.new(1, -25, 0, 20),
-        Font = FONT,
-        Text = options.Title,
-        TextColor3 = self.Theme.Text,
-        TextSize = TEXT_SIZE + 2,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = notification.Frame
-    })
-    
-    -- Add content
-    notification.Content = Utility:Create("TextLabel", {
-        Name = "Content",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 15, 0, 35),
-        Size = UDim2.new(1, -25, 0, 35),
-        Font = FONT,
-        Text = options.Content,
-        TextColor3 = self.Theme.SubText,
-        TextSize = TEXT_SIZE,
-        TextWrapped = true,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = notification.Frame
-    })
-    
-    -- Add close button
-    notification.CloseButton = Utility:Create("ImageButton", {
-        Name = "CloseButton",
-        BackgroundTransparency = 1,
-        Position = UDim2.new(1, -25, 0, 10),
-        Size = UDim2.new(0, 15, 0, 15),
-        Image = "rbxassetid://10734898835",
-        ImageColor3 = self.Theme.SubText,
-        Parent = notification.Frame
-    })
-    
-    -- Add progress bar
-    notification.ProgressBar = Utility:Create("Frame", {
-        Name = "ProgressBar",
-        BackgroundColor3 = accentColor,
-        BorderSizePixel = 0,
-        Position = UDim2.new(0, 0, 1, -2),
-        Size = UDim2.new(1, 0, 0, 2),
-        Parent = notification.Frame
-    })
-    
-    Utility:Create("UICorner", {
-        CornerRadius = UDim.new(0, 2),
-        Parent = notification.ProgressBar
-    })
-    
-    -- Animation to show notification
-    Utility:Tween(notification.Frame, {
-        Position = UDim2.new(1, -10, 0, 0)
-    }, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-    
-    -- Progress bar animation
-    Utility:Tween(notification.ProgressBar, {
-        Size = UDim2.new(0, 0, 0, 2)
-    }, options.Duration, Enum.EasingStyle.Linear, Enum.EasingDirection.In)
-    
-    -- Close notification when close button is clicked
-    notification.CloseButton.MouseButton1Click:Connect(function()
-        Utility:Tween(notification.Frame, {
-            Position = UDim2.new(1, 20, 0, notification.Frame.Position.Y.Offset)
-        }, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, function()
-            notification.Frame:Destroy()
-        end)
-    end)
-    
-    -- Auto-close notification after duration
-    task.delay(options.Duration, function()
-        if notification.Frame.Parent then
-            Utility:Tween(notification.Frame, {
-                Position = UDim2.new(1, 20, 0, notification.Frame.Position.Y.Offset)
-            }, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, function()
-                notification.Frame:Destroy()
-            end)
-        end
-    end)
-    
-    -- Return the notification object
-    return notification
+function Library:createSlider(options: table, parent, scrollingFrame)
+	Utility:validateOptions(options, {
+		text = {Default = "Slider", ExpectedType = "string"},
+		min = {Default = 0, ExpectedType = "number"},
+		max = {Default = 100, ExpectedType = "number"},
+		step = {Default = 1, ExpectedType = "number"},
+		callback = {Default = function() end, ExpectedType = "function"}
+	})
+
+	options.default = options.default or options.min
+	options.value = options.default 
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+
+	local Slider = Assets.Elements.Slider:Clone()
+	Slider.Visible = true
+	Slider.Parent = parent or self.Section
+	
+	local TextLabel = Slider.TextButton.TextLabel
+	local ImageButton = TextLabel.ImageButton
+	local TextBox = TextLabel.TextBox
+
+	local Line = Slider.Line
+	local TextButton = Slider.TextButton
+	local Fill = Line.Fill
+	
+	local TextLabel = TextButton.TextLabel
+	TextLabel.Text = options.text
+	
+	local Circle = Fill.Circle
+	local InnerCircle = Circle.InnerCircle
+	local CurrentValueLabel = Circle.TextButton.CurrentValueLabel
+
+	local function tweenSliderInfoAssets(transparency: number)
+		local TextBoundsX = math.clamp(CurrentValueLabel.TextBounds.X + 14, 10, 200)
+		Utility:tween(CurrentValueLabel, {Size = UDim2.fromOffset(TextBoundsX, 20), BackgroundTransparency = transparency, TextTransparency = transparency}):Play()
+	end
+
+	local Context = Utility:validateContext({
+		min = {Value = options.min, ExpectedType = "number"},
+		max = {Value = options.max, ExpectedType = "number"},
+		step = {Value = options.step, ExpectedType = "number"},
+		value = {Value = options.default, ExpectedType = "number"},
+		callback = {Value = options.callback, ExpectedType = "function"},
+		Line = {Value = Line, ExpectedType = "Instance"},
+		TextBox = {Value = TextLabel.TextBox, ExpectedType = "Instance"},
+		Library = {Value = Library, ExpectedType = "table"},
+		CurrentValueLabel = {Value = CurrentValueLabel, ExpectedType = "Instance"},
+		Connections = {Value = Connections, ExpectedType = "table"},
+
+		autoSizeTextBox = {Value = function()
+			local TextBoundsX = math.clamp(TextLabel.TextBox.TextBounds.X + 14, 10, 200)
+			Utility:tween(TextLabel.TextBox, {Size = UDim2.fromOffset(TextBoundsX, 20)}, 0.2):Play()
+		end, ExpectedType = "function"},
+
+		updateFill = {Value = function(sizeX)
+			Utility:tween(Line.Fill, {Size = UDim2.fromScale(sizeX, 1)}, 0.2):Play()
+		end, ExpectedType = "function"},
+
+		showInfo = {Value = function()
+			tweenSliderInfoAssets(0)
+		end, ExpectedType = "function"},
+
+		dontShowInfo ={Value = function()
+			tweenSliderInfoAssets(1)
+		end, ExpectedType = "function"},
+	})
+
+	local Slider = Modules.Slider.new(Context)
+	Slider:handleSlider()
+	
+	Theme:registerToObjects({
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Line, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = Fill, property = "BackgroundColor3", theme = {"PrimaryColor"}},
+		{object = Circle, property = "BackgroundColor3", theme = {"PrimaryColor"}},
+		{object = ImageButton, property = "ImageColor3", theme = {"SecondaryTextColor"}},
+		{object = TextBox, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = TextBox, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = CurrentValueLabel, property = "TextColor3", theme = {"TertiaryBackgroundColor"}},
+		{object = CurrentValueLabel, property = "BackgroundColor3", theme = {"PrimaryColor"}},
+		{object = InnerCircle, property = "BackgroundColor3", theme = {"TertiaryBackgroundColor"}},
+	})
+	
+	Fill.BackgroundColor3 = Theme.PrimaryColor
+	Circle.BackgroundColor3 = Theme.PrimaryColor
+	InnerCircle.BackgroundColor3 = Theme.TertiaryBackgroundColor
+	CurrentValueLabel.BackgroundColor3 = Theme.PrimaryColor
+
+	shared.Flags.Slider[options.text] =  {
+		getValue = function(self)
+			return Context.value
+		end,
+
+		updateValue = function(self, options: table)
+			Slider:updateValue(options)
+		end,
+	}
+
+	return self:createAddons(options.text, ImageButton, scrollingFrame, {
+		getValue = function(self)
+			return Context.value
+		end,
+
+		updateValue = function(self, options: table)
+			Slider:updateValue(options)
+		end,
+	})
 end
 
--- Get a flag value
-function NexonUI:GetFlag(flag)
-    return self.Flags[flag]
+function Library:createPicker(options: table, parent, scrollingFrame, isPickerBoolean)
+	Utility:validateOptions(options, {
+		text = {Default = "Picker", ExpectedType = "string"},
+		default = {Default = Color3.fromRGB(255, 0, 0), ExpectedType = "Color3"},
+		color = {Default = Color3.fromRGB(255, 0, 0), ExpectedType = "Color3"},
+		callback = {Default = function() end, ExpectedType = "function"},
+	})
+
+	isPickerBoolean = isPickerBoolean or false
+	options.color = options.default
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+
+	local Picker = Assets.Elements.Picker:Clone()
+	Picker.Visible = true
+	Picker.Parent = parent or self.Section
+
+	local TextLabel = Picker.TextLabel
+	TextLabel.Text = options.text
+
+	local ImageButton = TextLabel.ImageButton
+	local Background = TextLabel.Background
+	local TextButton = Background.TextButton
+
+	local ColorPicker = Assets.Elements.ColorPicker:Clone()
+	ColorPicker.Parent = Popups
+
+	-- Put transparent objects to not be visible to make cool effect later!!
+	local ColorPickerTransparentObjects = Utility:getTransparentObjects(ColorPicker)
+
+	for _, data in ipairs(ColorPickerTransparentObjects) do
+		data.object[data.property] = 1
+	end
+
+	local Inner = ColorPicker.Inner
+	local HSV = Inner.HSV
+	local Slider = Inner.Slider
+	local Submit = Inner.Submit
+	local Hex = Inner.HexAndRGB.Hex
+	local RGB = Inner.HexAndRGB.RGB
+
+	local PopupContext = Utility:validateContext({
+		Popup = {Value = ColorPicker, ExpectedType = "Instance"},
+		Target = {Value = Background, ExpectedType = "Instance"},
+		Library = {Value = Library, ExpectedType = "table"},
+		TransparentObjects = {Value = ColorPickerTransparentObjects, ExpectedType = "table"},
+		Popups = {Value = Popups, ExpectedType = "Instance"},
+		isPicker = {Value = isPickerBoolean, ExpectedType = "boolean"},
+		ScrollingFrame = {Value = scrollingFrame, ExpectedType = "Instance"},
+		PositionPadding = {Value = 18 + 7, ExpectedType = "number"},
+		Connections = {Value = Connections, ExpectedType = "table"},
+		SizePadding = {Value = 14, ExpectedType = "number"},
+	})
+
+	local Popup = Modules.Popup.new(PopupContext)
+	TextButton.MouseButton1Down:Connect(Popup:togglePopup())
+	Popup:hidePopupOnClickingOutside()
+
+	local ColorPickerContext = Utility:validateContext({
+		ColorPicker = {Value = ColorPicker, ExpectedType = "Instance"},
+		Hex = {Value = Hex, ExpectedType = "Instance"},
+		RGB = {Value = RGB, ExpectedType = "Instance"},
+		Slider = {Value = Slider, ExpectedType = "Instance"},
+		HSV = {Value = HSV, ExpectedType = "Instance"},
+		Submit = {Value = Submit, ExpectedType = "Instance"},
+		Background = {Value = Background, ExpectedType = "Instance"},
+		Connections = {Value = Connections, ExpectedType = "table"},
+		color = {Value = options.color, ExpectedType = "Color3"},
+		callback = {Value = options.callback, ExpectedType = "function"},
+
+		submitAnimation = {Value = function()
+			Utility:tween(Submit.TextLabel, {BackgroundTransparency = 0}, 0.2):Play()
+			Utility:tween(Submit.TextLabel, {TextColor3 = Theme.PrimaryColor, TextTransparency = 0}, 0.2):Play()
+
+			task.delay(0.2, function()
+				Utility:tween(Submit.TextLabel, {TextColor3 = Theme.SecondaryTextColor, TextTransparency = 0}, 0.2):Play()
+				Utility:tween(Submit.TextLabel, {BackgroundTransparency = 0.3}, 0.2):Play()
+			end)
+		end, ExpectedType = "function"},
+		
+		hoveringOn = {Value = function()
+			Utility:tween(Submit.TextLabel, {BackgroundTransparency = 0.3}, 0.2):Play()
+			Utility:tween(Submit.TextLabel, {TextColor3 = Theme.PrimaryColor, TextTransparency = 0.3}, 0.2):Play()
+		end, ExpectedType = "function"},
+		
+		hoveringOff = {Value = function()
+			Utility:tween(Submit.TextLabel, {BackgroundTransparency = 0}, 0.2):Play()
+			Utility:tween(Submit.TextLabel, {TextColor3 = Theme.SecondaryTextColor, TextTransparency = 0}, 0.2):Play()
+		end, ExpectedType = "function"}, 
+	})
+
+	Theme:registerToObjects({
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = ColorPicker, property = "BackgroundColor3", theme = {"Line"}},
+		{object = ImageButton, property = "ImageColor3", theme = {"SecondaryTextColor"}},
+		{object = Inner, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = Submit, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = Hex, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = RGB, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = Submit.TextLabel, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}}
+	})
+
+	local ColorPicker = Modules.ColorPicker.new(ColorPickerContext)
+	ColorPicker:handleColorPicker()
+
+	shared.Flags.ColorPicker[options.text] = {
+		getColor = function(self)
+			return ColorPickerContext.color
+		end,
+
+		updateColor = function(self, options: table)
+			ColorPicker:updateColor(options)
+		end,
+	}
+
+	return self:createAddons(options.text, ImageButton, scrollingFrame, {
+		getColor = function(self)
+			return ColorPickerContext.color
+		end,
+
+		updateColor = function(self, options: table)
+			ColorPicker:updateColor(options)
+		end,
+	})
 end
 
--- Set a flag value
-function NexonUI:SetFlag(flag, value)
-    self.Flags[flag] = value
-    return self.Flags[flag]
+function Library:createDropdown(options: table, parent, scrollingFrame)
+	Utility:validateOptions(options, {
+		text = {Default = "Dropdown", ExpectedType = "string"},
+		list = {Default = {"Option 1", "Option 2"}, ExpectedType = "table"},
+		default = {Default = {}, ExpectedType = "table"},
+		multiple = {Default = false, ExpectedType = "boolean"},
+		callback = {Default = function() end, ExpectedType = "function"},
+	})
+
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+
+	local Dropdown = Assets.Elements.Dropdown:Clone()
+	Dropdown.Visible = true
+	Dropdown.Parent = parent or self.Section
+	
+	local TextLabel = Dropdown.TextLabel
+	TextLabel.Text = options.text
+	
+	local ImageButton = TextLabel.ImageButton
+	local Box = Dropdown.Box
+	
+	local TextButton = Box.TextButton
+	TextButton.Text = table.concat(options.default, ", ")
+
+	if options.default[1] == nil then
+		TextButton.Text = "None"
+	end
+
+	local List = Dropdown.List
+	local Inner = List.Inner
+	local DropButtons = Inner.ScrollingFrame
+	local Search = Inner.TextBox
+
+	-- Auto size ScrollingFrame and List
+	DropButtons.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		DropButtons.CanvasSize = UDim2.new(0, 0, 0, DropButtons.UIListLayout.AbsoluteContentSize.Y + Inner.UIListLayout.Padding.Offset)
+		DropButtons.Size = UDim2.new(1, 0, 0, math.clamp(DropButtons.UIListLayout.AbsoluteContentSize.Y + Inner.UIListLayout.Padding.Offset, 0, 164))
+
+		if List.Size.Y.Offset > 0 then
+			Utility:tween(List, {Size = UDim2.new(1, 0, 0, math.clamp(Inner.UIListLayout.AbsoluteContentSize.Y, 0, 210))}, 0.2):Play()
+			
+			for index, value in ipairs(self.DropdownSizes) do
+				scrollingFrame.CanvasSize = scrollingFrame.CanvasSize - value.size
+				scrollingFrame.CanvasSize = scrollingFrame.CanvasSize + UDim2.new(0, 0, 0, math.clamp(Inner.UIListLayout.AbsoluteContentSize.Y, 0, 210))
+				table.remove(Library.DropdownSizes, index)
+				table.insert(Library.DropdownSizes, {object = Dropdown, size = UDim2.new(0, 0, 0, math.clamp(Inner.UIListLayout.AbsoluteContentSize.Y, 0, 210))})
+			end
+		end
+	end)
+
+	-- As long we don't spam it were good i guess when changing canvassize when tweened but let's not do that
+	local function toggleList()
+		if List.Size.Y.Offset <= 0 then
+			for index, value in ipairs(Library.DropdownSizes) do
+				if value.object ~= Dropdown then
+					scrollingFrame.CanvasSize = scrollingFrame.CanvasSize - value.size
+					table.remove(Library.DropdownSizes, index)
+				end
+			end
+
+			-- Hide current open dropdowns and make sure enabled dropdown is on top
+			for _, object in ipairs(scrollingFrame:GetDescendants()) do
+				if object.Name == "Section" then
+					object.ZIndex = 1
+				end
+
+				if object.Name == "List" and object ~= List then
+					object.Parent.ZIndex = 1
+					Utility:tween(object, {Size = UDim2.new(1, 0, 0, 0)}, 0.2):Play()
+				end
+			end
+
+			for _, object in ipairs(Popups:GetDescendants()) do
+				if object.Name == "List" and object ~= List then
+					object.Parent.ZIndex = 1
+					Utility:tween(object, {Size = UDim2.new(1, 0, 0, 0)}, 0.2):Play()
+				end
+			end
+
+			Dropdown.ZIndex = 2
+			
+			if self.Section then
+				self.Section.Parent.ZIndex = 2
+			end
+			
+			Utility:tween(List, {Size = UDim2.new(1, 0, 0, math.clamp(Inner.UIListLayout.AbsoluteContentSize.Y, 0, 210))}, 0.2):Play()
+			table.insert(Library.DropdownSizes, {object = Dropdown, size = UDim2.new(0, 0, 0, math.clamp(Inner.UIListLayout.AbsoluteContentSize.Y, 0, 210))})
+
+			scrollingFrame.CanvasSize = scrollingFrame.CanvasSize + UDim2.new(0, 0, 0, math.clamp(Inner.UIListLayout.AbsoluteContentSize.Y, 0, 210))
+		else
+			Utility:tween(List, {Size = UDim2.new(1, 0, 0, 0)}, 0.2):Play()
+
+			for index, value in ipairs(Library.DropdownSizes) do
+				if value.object == Dropdown then
+					scrollingFrame.CanvasSize = scrollingFrame.CanvasSize - value.size
+					table.remove(Library.DropdownSizes, index)
+				end
+			end
+		end
+	end
+
+	local function createDropButton(value)
+		local DropButton = Assets.Elements.DropButton:Clone()
+		DropButton.Visible = true
+		DropButton.Parent = DropButtons
+
+		local TextButton = DropButton.TextButton
+		local Background = TextButton.Background
+		local Checkmark = TextButton.Checkmark
+
+		local TextLabel = DropButton.TextLabel
+		TextLabel.Text = tostring(value)
+		
+		Theme:registerToObjects({
+			{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+			{object = Background, property = "BackgroundColor3", theme = {"PrimaryColor", "SecondaryBackgroundColor"}},
+			{object = Checkmark, property = "ImageColor3", theme = {"TertiaryBackgroundColor"}},
+		})
+		
+		return TextButton
+	end
+
+	local function tweenDropButton(dropButton: Instance, backgroundColor: Color3, imageTransparency: number)
+		Utility:tween(dropButton.Background, {BackgroundColor3 = backgroundColor}, 0.2, "Circular", "InOut"):Play()
+		Utility:tween(dropButton.Checkmark, {ImageTransparency = imageTransparency}, 0.3):Play()
+	end
+
+	local Context = Utility:validateContext({
+		text = {Value = options.text, ExpectedType = "string"},
+		default = {Value = options.default, ExpectedType = "table"},
+		list = {Value = options.list, ExpectedType = "table"},
+		callback = {Value = options.callback, ExpectedType = "function"},
+		TextButton = {Value = TextButton, ExpectedType = "Instance"},
+		DropButtons = {Value = DropButtons, ExpectedType = "Instance"},
+		createDropButton = {Value = createDropButton, ExpectedType = "function"},
+		ScrollingFrame = {Value = scrollingFrame, ExpectedType = "Instance"},
+		multiple = {Value = options.multiple, ExpectedType = "boolean"},
+
+		tweenDropButtonOn = {Value = function(dropButton)
+			tweenDropButton(dropButton, Theme.PrimaryColor, 0)
+		end, ExpectedType = "function"},
+
+		tweenDropButtonOff = {Value = function(dropButton)
+			tweenDropButton(dropButton, Theme.SecondaryBackgroundColor, 1)
+		end, ExpectedType = "function"},
+	})
+
+	TextButton.MouseButton1Down:Connect(toggleList)
+
+	-- Search drop buttons function
+	Search:GetPropertyChangedSignal("Text"):Connect(function()
+		for _, dropButton in ipairs(DropButtons:GetChildren()) do
+			if not dropButton:IsA("Frame") then
+				continue
+			end
+
+			if Search.Text == "" or string.match(string.lower(dropButton.TextLabel.Text), string.lower(Search.Text)) then
+				dropButton.Visible = true
+			else
+				dropButton.Visible = false
+			end
+		end
+	end)
+
+	local Dropdown = Modules.Dropdown.new(Context)
+	Dropdown:handleDropdown()
+	
+	Theme:registerToObjects({
+		{object = ImageButton, property = "ImageColor3", theme = {"SecondaryTextColor"}},
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Box, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = TextButton, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = List, property = "BackgroundColor3", theme = {"Line"}},
+		{object = Inner, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = Search, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Search, property = "PlaceholderColor3", theme = {"SecondaryTextColor"}},
+		{object = Search, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = Search.Parent, property =  "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+	})
+	
+	List.BackgroundColor3 = Theme.Line
+	Inner.BackgroundColor3 = Theme.PrimaryBackgroundColor
+	Box.BackgroundColor3 = Theme.SecondaryBackgroundColor
+	Search.BackgroundColor3 = Theme.SecondaryBackgroundColor
+
+	shared.Flags.Dropdown[options.text] = {
+		getList = function()
+			return Context.list
+		end,
+
+		getValue = function()
+			return Dropdown:getValue()	
+		end,
+
+		updateList = function(self, options: table)
+			Dropdown:updateList(options)
+		end,
+	}
+
+	return self:createAddons(options.text, ImageButton, scrollingFrame, {
+		getList = function()
+			return Context.list
+		end,
+
+		getValue = function()
+			return Dropdown:getValue()	
+		end,
+
+		updateList = function(self, options: table)
+			Dropdown:updateList(options)
+		end,
+	})
 end
 
--- Return the library
-return NexonUI
+function Library:createKeybind(options: table, parent, scrollingFrame)
+	Utility:validateOptions(options, {
+		text = {Default = "Keybind", ExpectedType = "string"},
+		default = {Default = "None", ExpectedType = "string"},
+		onHeld = {Default = false, ExpectedType = "boolean"},
+		callback = {Default = function() end, ExpectedType = "function"},
+	})
+	
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+
+	local Keybind = Assets.Elements.Keybind:Clone()
+	Keybind.Visible = true
+	Keybind.Parent = parent or self.Section
+
+	local TextLabel = Keybind.TextLabel
+	TextLabel.Text = options.text
+	
+	local ImageButton = TextLabel.ImageButton
+	local Background = TextLabel.Background
+	
+	local TextButton = Background.TextButton
+	
+	if not table.find(self.Exclusions, options.default) then
+		TextButton.Text = options.default
+	else
+		TextButton.Text = "None"
+		warn("You already have this key binded")
+	end
+
+	if options.default ~= "None" then
+		table.insert(Exclusions, options.default)
+	end
+
+	local Context = Utility:validateContext({
+		default = {Value = options.default, ExpectedType = "string"},
+		callback = {Value = options.callback, ExpectedType = "function"},
+		Background = {Value = TextButton.Parent, ExpectedType = "Instance"},
+		TextButton = {Value = TextButton, ExpectedType = "Instance"},
+		Connections = {Value = Connections, ExpectedType = "table"},
+		Library = {Value = Library, ExpectedType = "table"},
+		onHeld = {Value = options.onHeld, ExpectedType = "boolean"},
+		Exclusions = {Value = Exclusions, ExpectedType = "table"},
+
+		autoSizeBackground = {Value = function()
+			local TextBoundsX = math.clamp(TextButton.TextBounds.X + 14, 10, 200)
+			Utility:tween(TextButton.Parent, {Size = UDim2.fromOffset(TextBoundsX, 20)}, 0.2):Play()
+		end, ExpectedType = "function"},
+	})
+
+	local Keybind = Modules.Keybind.new(Context)
+	Keybind:handleKeybind()
+	
+	Theme:registerToObjects({
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = ImageButton, property = "ImageColor3", theme = {"SecondaryTextColor"}},
+		{object = Background, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = TextButton, property = "TextColor3", theme = {"SecondaryTextColor"}}
+	})
+	
+	shared.Flags.Keybind[options.text] = {
+		getKeybind = function(self)
+			return TextButton.Text
+		end,
+
+		updateKeybind = function(self, options: table)
+			Keybind:updateKeybind(options)
+		end,
+	}
+
+	return self:createAddons(options.text, ImageButton, scrollingFrame, {
+		getKeybind = function(self)
+			return TextButton.Text
+		end,
+
+		updateKeybind = function(self, options: table)
+			Keybind:updateKeybind(options)
+		end,
+	})
+end
+
+-- Rushed this, later put it into a module like the other elements, even though it's simple.
+function Library:createButton(options: table, parent, scrollingFrame)
+	Utility:validateOptions(options, {
+		text = {Default = "Button", ExpectedType = "string"},
+		callback = {Default = function() end, ExpectedType = "function"},
+	})
+	
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+	
+	local Button = Assets.Elements.Button:Clone()
+	Button.Visible = true
+	Button.Parent = parent or self.Section
+		
+	local Background = Button.Background
+	
+	local TextButton = Background.TextButton
+	TextButton.Text = options.text
+	
+	TextButton.MouseButton1Down:Connect(function() 
+		Utility:tween(Background, {BackgroundTransparency = 0}, 0.2):Play()
+		Utility:tween(TextButton, {TextColor3 = Theme.PrimaryColor, TextTransparency = 0}, 0.2):Play()
+		
+		task.delay(0.2, function()
+			Utility:tween(TextButton, {TextColor3 = Theme.SecondaryTextColor, TextTransparency = 0}, 0.2):Play()
+			Utility:tween(Background, {BackgroundTransparency = 0.3}, 0.2):Play()
+		end)
+		
+		options.callback() 
+	end)
+	
+	Background.MouseEnter:Connect(function(input)
+		Utility:tween(Background, {BackgroundTransparency = 0.3}, 0.2):Play()
+		Utility:tween(TextButton, {TextColor3 = Theme.PrimaryColor, TextTransparency = 0.3}, 0.2):Play()
+	end)
+	
+	Background.MouseLeave:Connect(function()
+		Utility:tween(Background, {BackgroundTransparency = 0}, 0.2):Play()
+		Utility:tween(TextButton, {TextColor3 = Theme.SecondaryTextColor, TextTransparency = 0}, 0.2):Play()
+	end)
+	
+	Theme:registerToObjects({
+		{object = Background, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = TextButton, property = "TextColor3", theme = {"SecondaryTextColor"}},
+	})
+end
+
+-- Redo textbox later
+function Library:createTextBox(options: table, parent, scrollingFrame)
+	Utility:validateOptions(options, {
+		text = {Default = "Textbox", ExpectedType = "string"},
+		default = {Default = "", ExpectedType = "string"},
+		callback = {Default = function() end, ExpectedType = "function"},
+	})
+	
+	scrollingFrame = self.ScrollingFrame or scrollingFrame
+	
+	local TextBox = Assets.Elements.TextBox:Clone()
+	TextBox.Visible = true
+	TextBox.Parent = parent or self.Section
+
+	local TextLabel = TextBox.TextLabel
+	TextLabel.Text = options.text
+	
+	local ImageButton = TextLabel.ImageButton
+	
+	local Box = TextLabel.TextBox
+	Box.Text = options.default
+
+	local Context = Utility:validateContext({
+		default = {Value = options.default, ExpectedType = "string"},
+		callback = {Value = options.callback, ExpectedType = "function"},
+		TextBox = {Value = Box, ExpectedType = "Instance"},
+
+		autoSizeTextBox = {Value = function()
+			local TextBoundsX = math.clamp(Box.TextBounds.X + 14, 0, 100)
+			Utility:tween(Box, {Size = UDim2.fromOffset(TextBoundsX, 20)}, 0.2):Play()
+		end, ExpectedType = "function"}
+	})
+
+	local TextBox = Modules.TextBox.new(Context)
+	TextBox:handleTextBox()
+	
+	Theme:registerToObjects({
+		{object = TextLabel, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Box, property = "TextColor3", theme = {"SecondaryTextColor"}},
+		{object = Box, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+	})
+
+	shared.Flags.TextBox[options.text] = {
+		getText = function(self)
+			return Box.Text
+		end,
+
+		updateText = function(self, options: table)
+			Box.Text = options.text or ""
+			Context.callback(Box.Text)
+		end,
+	}
+
+	return self:createAddons(options.text, ImageButton, scrollingFrame, {
+		getText = function(self)
+			return Box.Text
+		end,
+
+		updateText = function(self, options: table)
+			Box.Text = options.text or ""
+			Context.callback(Box.Text)
+		end,
+	})
+end
+
+-- Later put this into a module, but this is fine if it's put here anyways.
+local ChildRemoved = false
+function Library:notify(options: table)
+	Utility:validateOptions(options, {
+		title = {Default = "Notification", ExpectedType = "string"},
+		text = {Default = "Hello world", ExpectedType = "string"},
+		duration = {Default = 3, ExpectedType = "number"},
+		maxSizeX = {Default = 300, ExpectedType = "number"},
+		scaleX = {Default = 0.165, ExpectedType = "number"},
+		sizeY = {Default = 100, ExpectedType = "number"},
+	})
+	
+	local Notification = Assets.Elements.Notification:Clone()
+	Notification.Visible = true
+	Notification.Parent = ScreenGui.Notifications
+	Notification.Size = UDim2.new(options.scaleX, 0, 0, options.sizeY)
+	Notification.UISizeConstraint.MaxSize = Vector2.new(options.maxSizeX, 9e9)
+	
+	local Title = Notification.Title
+	Title.Text = options.title
+	
+	local Body = Notification.Body
+	Body.Text = options.text
+	
+	local Line = Notification.Line
+	
+	-- Put transparent objects to not be visible to make cool effect
+	local NotificationTransparentObjects = Utility:getTransparentObjects(Notification)
+	
+	for _, data in ipairs(NotificationTransparentObjects) do
+		data.object[data.property] = 1
+	end
+
+	Notification.BackgroundTransparency = 1
+	
+	-- Get back NotificationTransparentObjects again and make it visible now with cool effect!!
+	for _, data in ipairs(NotificationTransparentObjects) do
+		Utility:tween(data.object, {[data.property] = 0}, 0.2):Play()
+	end
+
+	Utility:tween(Notification, {["BackgroundTransparency"] = 0}, 0.2):Play()
+
+	local notificationPosition = -24
+	local notificationSize = 0
+	local PADDING_Y = 14
+	
+	for index, notification in ipairs(ScreenGui.Notifications:GetChildren()) do
+		if index == 1 then
+			notificationSize = notification.AbsoluteSize.Y
+			Utility:tween(notification, {Position = UDim2.new(1, -24, 1, notificationPosition)}, 0.2):Play()
+			continue
+		end
+		
+		-- Current notification position
+		notificationPosition -= notificationSize + PADDING_Y
+		-- Update notification size for next time to get proper position
+		notificationSize = notification.Size.Y.Offset
+		Notification.Position = UDim2.new(1, Notification.Position.X.Offset, 1, notificationPosition)
+	end
+	
+	-- Update notification position when notification is removed
+	if not ChildRemoved then
+		ScreenGui.Notifications.ChildRemoved:Connect(function(child)		
+			for index, notification in ipairs(ScreenGui.Notifications:GetChildren()) do
+				if index == 1 then
+					notificationPosition = -14
+					notificationSize = notification.AbsoluteSize.Y
+					Utility:tween(notification, {Position = UDim2.new(1, -24, 1, notificationPosition)}, 0.2):Play()
+					continue
+				end
+
+				-- Current notification position
+				notificationPosition -= notificationSize + PADDING_Y
+				-- Update notification size for next time to get proper position
+				notificationSize = notification.AbsoluteSize.Y
+				Utility:tween(notification, {Position = UDim2.new(1, -24, 1, notificationPosition)}, 0.2):Play()
+			end
+		end)
+		
+		ChildRemoved = true
+	end
+	
+	-- Auto remove notification after a delay
+	task.delay(options.duration, function()
+		if Notification then
+			for _, data in ipairs(Utility:getTransparentObjects(Notification)) do
+				Utility:tween(data.object, {[data.property] = 1}, 0.2):Play()
+			end
+			
+			Utility:tween(Notification, {["BackgroundTransparency"] = 1}, 0.2):Play()
+			
+			task.wait(0.2)
+			Notification:Destroy()
+		end
+	end)
+	
+	-- Show notification
+	Utility:tween(Notification, {Position = UDim2.new(1, -24, 1, notificationPosition)}, 0.2):Play()
+	task.wait(0.2)
+	
+	-- Register to Theme
+	Theme:registerToObjects({
+		{object = Notification, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+		{object = Title, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+		{object = Title, property = "TextColor3", theme = {"PrimaryTextColor"}},
+		{object = Line, property = "BackgroundColor3", theme = {"Line"}},
+		{object = Body, property = "TextColor3", theme = {"SecondaryTextColor"}},
+	})
+end
+
+-- Save Manager, Theme Manager, UI settings
+function Library:createManager(options: table)
+	Utility:validateOptions(options, {
+		folderName = {Default = "Leny", ExpectedType = "string"},
+		icon = {Default = "124718082122263", ExpectedType = "string"}
+	})
+
+	local function getJsons() 
+		local jsons = {}
+		for _, file in ipairs(listfiles(options.folderName)) do
+			if not string.match(file, "Theme") and not string.match(file, "autoload") then
+				file = string.gsub(file, options.folderName .. "\\", "")
+				file = string.gsub(file, ".json", "")
+				table.insert(jsons, file)
+			end
+		end
+	
+		return jsons
+	end
+
+	local function getThemeJsons()
+		local themeJsons = {}
+		for _, file in ipairs(listfiles(options.folderName .. "/Theme")) do
+			file = string.gsub(file, options.folderName .. "/Theme" .. "\\", "")
+			file = string.gsub(file, ".json", "")
+			table.insert(themeJsons, file)
+		end
+
+		return themeJsons
+	end
+	
+	local function getSavedData()
+		local SavedData = {
+			Dropdown = {},
+			Toggle = {},
+			Keybind = {},
+			Slider = {},
+			TextBox = {},
+			ColorPicker = {},
+		}
+	
+		local Excluded = {"Line", "PrimaryColor", "PrimaryTextColor", "SecondaryTextColor", "PrimaryBackgroundColor", "SecondaryBackgroundColor", "TertiaryBackgroundColor", "ScrollingBarImageColor", "TabBackgroundColor"}
+	
+		for elementType, elementData in pairs(shared.Flags) do
+			for elementName, addon in pairs(elementData) do
+				if elementType == "Dropdown" and typeof(addon) == "table" and addon.getList and addon.getValue then
+					SavedData.Dropdown[elementName] = {list = addon:getList(), value = addon:getValue()}
+				end
+	
+				if elementType == "Toggle" and typeof(addon) == "table" and addon.getState then
+					SavedData.Toggle[elementName] = {state = addon:getState()}
+				end
+	
+				if elementType == "Slider" and typeof(addon) == "table" and addon.getValue then
+					SavedData.Slider[elementName] = {value = addon:getValue()}
+				end
+	
+				if elementType == "Keybind" and typeof(addon) == "table" and addon.getKeybind then
+					SavedData.Keybind[elementName] = {keybind = addon:getKeybind()}
+				end
+	
+				if elementType == "TextBox" and typeof(addon) == "table" and addon.getText then
+					SavedData.TextBox[elementName] = {text = addon:getText()}
+				end
+	
+				if not table.find(Excluded, elementName) and elementType == "ColorPicker" and typeof(addon) == "table" and addon.getColor then
+					SavedData.ColorPicker[elementName] = {color = {addon:getColor().R * 255, addon:getColor().G * 255, addon:getColor().B * 255}}
+				end
+			end
+		end
+	
+		return SavedData
+	end
+	
+	local function getThemeData()
+		local SavedData = {
+			ColorPicker = {},
+		}
+	
+		for elementType, elementData in pairs(shared.Flags) do
+			for elementName, addon in pairs(elementData) do
+				for _, themeName in ipairs({"Line", "PrimaryColor", "PrimaryTextColor", "SecondaryTextColor", "PrimaryBackgroundColor", "SecondaryBackgroundColor", "TertiaryBackgroundColor", "ScrollingBarImageColor", "TabBackgroundColor"}) do
+					if elementName == themeName and elementType == "ColorPicker" and typeof(addon) == "table" and addon.getColor then
+						SavedData.ColorPicker[elementName] = {color = {addon:getColor().R * 255, addon:getColor().G * 255, addon:getColor().B * 255}}
+					end
+				end
+			end
+		end
+
+		return SavedData
+	end
+	
+	local function loadSaveConfig(fileName: string)
+		local decoded = game:GetService("HttpService"):JSONDecode(readfile(options.folderName .. "/" .. fileName .. ".json"))
+	
+		for elementType, elementData in pairs(shared.Flags) do
+			for elementName, _ in pairs(elementData) do
+				if elementType == "Dropdown" and decoded.Dropdown[elementName] and elementName ~= "Configs" then
+					shared.Flags.Dropdown[elementName]:updateList({list = decoded.Dropdown.list, default = decoded.Dropdown.value})
+				end
+	
+				if elementType == "Toggle" and decoded.Toggle[elementName] then
+					shared.Flags.Toggle[elementName]:updateState({state = decoded.Toggle[elementName].state})
+				end
+	
+				if elementType == "Slider" and decoded.Slider[elementName] then
+					shared.Flags.Slider[elementName]:updateValue({value = decoded.Slider[elementName].value})
+				end
+	
+				if elementType == "Keybind" and decoded.Keybind[elementName] then
+					shared.Flags.Keybind[elementName]:updateKeybind({bind = decoded.Keybind[elementName].keybind})
+				end
+	
+				if elementType == "TextBox" and decoded.TextBox[elementName] then
+					shared.Flags.TextBox[elementName]:updateText({text = decoded.TextBox[elementName].text})
+				end
+	
+				if elementType == "ColorPicker" and decoded.ColorPicker[elementName] then
+					shared.Flags.ColorPicker[elementName]:updateColor({color = Color3.fromRGB(unpack(decoded.ColorPicker[elementName].color))})
+				end
+			end
+		end
+	end
+	
+	local function loadThemeConfig(fileName: string)
+		local decoded = game:GetService("HttpService"):JSONDecode(readfile(options.folderName .. "/" .. "Theme/" .. fileName .. ".json"))
+	
+		for elementType, elementData in pairs(shared.Flags) do
+			for elementName, _ in pairs(elementData) do
+				if elementType == "ColorPicker" and decoded.ColorPicker[elementName] then
+					shared.Flags.ColorPicker[elementName]:updateColor({color = Color3.fromRGB(unpack(decoded.ColorPicker[elementName].color))})
+				end
+			end
+		end
+	end
+
+	local UI = Library:createTab({text = "UI", icon = options.icon})
+	local Page = UI:createSubTab({text = "Page 1"})
+	local UI = Page:createSection({text = "UI"})
+	local SaveManager = Page:createSection({position = "Right", text = "Save Manager"})
+	local ThemeManager = Page:createSection({position = "Right", text = "Theme Manager"})
+	
+	-- Create color pickers to change UI color
+	UI:createPicker({
+		text = "SecondaryTextColor", 
+		default = Theme.SecondaryTextColor, 
+		callback = function(color)
+			Theme:setTheme("SecondaryTextColor", color)
+		end,
+	})
+	
+	UI:createPicker({
+		text = "PrimaryTextColor", 
+		default = Theme.PrimaryTextColor,
+		callback = function(color)
+			Theme:setTheme("PrimaryTextColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "PrimaryBackgroundColor", 
+		default = Theme.PrimaryBackgroundColor, 
+		callback = function(color)
+			Theme:setTheme("PrimaryBackgroundColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "SecondaryBackgroundColor", 
+		default = Theme.SecondaryBackgroundColor, 
+		callback = function(color)
+			Theme:setTheme("SecondaryBackgroundColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "TabBackgroundColor", 
+		default = Theme.TabBackgroundColor, 
+		callback = function(color)
+			Theme:setTheme("TabBackgroundColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "PrimaryColor", 
+		default = Theme.PrimaryColor, 
+		callback = function(color)
+			Theme:setTheme("PrimaryColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "Outline", 
+		default = Theme.Line, 
+		callback = function(color)
+			Theme:setTheme("Line", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "TertiaryBackgroundColor", 
+		default = Theme.TertiaryBackgroundColor, 
+		callback = function(color)
+			Theme:setTheme("TertiaryBackgroundColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "SecondaryTextColor", 
+		default = Theme.SecondaryTextColor, 
+		callback = function(color)
+			Theme:setTheme("SecondaryTextColor", color)
+		end,
+	})
+
+	UI:createPicker({
+		text = "ScrollingBarImageColor", 
+		default = Theme.ScrollingBarImageColor, 
+		callback = function(color)
+			Theme:setTheme("ScrollingBarImageColor", color)
+		end,
+	})	
+	
+	UI:createKeybind({
+		text = "Hide UI", 
+		default = "Insert",
+		callback = function()
+			ScreenGui.Enabled = not ScreenGui.Enabled
+		end,
+	})
+
+	UI:createButton({text = "Destroy UI", callback = function() Library:destroy() end})
+
+	-- File system
+	if not isfolder(options.folderName) then
+		makefolder(options.folderName)
+	end
+
+	if not isfolder(options.folderName .. "/Theme") then
+		makefolder(options.folderName .. "/Theme")
+	end
+
+	local configName = SaveManager:createTextBox({text = "Config Name"})
+	local jsons = getJsons()
+
+	SaveManager:createButton({text = "Create Config", callback = function()
+		local SavedData = getSavedData()
+		local encoded = game:GetService("HttpService"):JSONEncode(SavedData)
+		writefile(options.folderName .. "/" .. configName:getText() .. ".json", encoded)
+		
+		if shared.Flags.Dropdown["Configs"] then
+			shared.Flags.Dropdown["Configs"]:updateList({list = getJsons(), default = {shared.Flags.Dropdown["Configs"]:getValue()}})
+		end
+	end})
+	
+	local Configs = SaveManager:createDropdown({text = "Configs", list = jsons})
+
+	SaveManager:createButton({text = "Save/Overwrite Config", callback = function()
+		local SavedData = getSavedData()
+		local encoded = game:GetService("HttpService"):JSONEncode(SavedData)
+		writefile(options.folderName .. "/" .. Configs:getValue() .. ".json", encoded)
+		Configs:updateList({list = getJsons(), default = {Configs:getValue()}})
+	end,})
+
+	SaveManager:createButton({
+		text = "Load Config", 
+		callback = function()
+    		loadSaveConfig(Configs:getValue())
+		end
+	})
+
+	-- Auto load
+	SaveManager:createButton({
+		text = "Set as Auto Load", 
+		callback = function()
+			writefile(options.folderName .. "/autoload.txt", Configs:getValue())
+		end
+	})
+
+	if isfile(options.folderName .. "/autoload.txt") then
+		loadConfig(readfile(options.folderName .. "/autoload.txt"))
+	end
+
+	local themeConfigName = ThemeManager:createTextBox({text = "Theme Config Name"})
+
+	ThemeManager:createButton({
+		text = "Create Theme Config", 
+		callback = function()
+			local ThemeData = getThemeData()
+			local encoded = game:GetService("HttpService"):JSONEncode(ThemeData)
+			writefile(options.folderName .. "/" .. "Theme/" .. themeConfigName:getText() .. ".json", encoded)
+
+			if shared.Flags.Dropdown["Theme Configs"] then
+				shared.Flags.Dropdown["Theme Configs"]:updateList({list = getThemeJsons(), default = {shared.Flags.Dropdown["Theme Configs"]:getValue()}})
+			end
+		end
+	})
+
+	local ThemeConfigs = ThemeManager:createDropdown({
+		text = "Theme Configs", 
+		list = getThemeJsons(),
+	})
+
+	ThemeManager:createButton({
+		text = "Save Theme Config", 
+		callback = function()
+			local ThemeData = getThemeData()
+			local encoded = game:GetService("HttpService"):JSONEncode(ThemeData)
+			writefile(options.folderName .. "/" .. "Theme/" .. ThemeConfigs:getValue() .. ".json", encoded)
+			ThemeConfigs:updateList({list = getThemeJsons(), default = {ThemeConfigs:getValue()}})
+		end
+	})
+
+	ThemeManager:createButton({
+		text = "Load Theme Config", 
+		callback = function()
+			loadThemeConfig(ThemeConfigs:getValue())
+		end
+	})
+
+	self.managerCreated = true
+end
+
+-- Set users theme choice or default theme when initiliazed, could make this cleaner lol, but nah.
+Theme:registerToObjects({
+	{object = Glow, property = "ImageColor3", theme = {"PrimaryBackgroundColor"}},
+	{object = Background, property = "BackgroundColor3", theme = {"SecondaryBackgroundColor"}},
+	{object = Line , property = "BackgroundColor3", theme = {"Line"}},
+	{object = Tabs , property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+	{object = Filler , property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+	{object = Title , property = "TextColor3", theme = {"PrimaryTextColor"}},
+	{object = Assets.Pages.Fade, property = "BackgroundColor3", theme = {"PrimaryBackgroundColor"}},
+})
+
+-- Make UI Draggable and Resizable
+Utility:draggable(Library, Glow)
+Utility:resizable(Library, Glow.Background.Pages.Resize, Glow)
+
+-- Clean up Addon objects with no Addons
+task.spawn(function()
+	while not Library.managerCreated do
+		task.wait()
+	end
+	
+	for _, addon in pairs(Library.Addons) do
+		if addon.Parent == nil then
+			addon:Destroy()
+		end
+	end
+end)
+
+return Library
