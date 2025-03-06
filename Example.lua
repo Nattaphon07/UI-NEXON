@@ -1922,7 +1922,130 @@ function NexonUI:CreateWindow(options)
     table.insert(self.Windows, window)
     return window
 end
+-- ฟังก์ชัน CreateToggleButton สำหรับสร้างปุ่มเปิด/ปิด UI สวยๆ
+function NexonUI:CreateToggleButton()
+    -- สร้างปุ่มลอยบนพื้นที่ว่าง
+    local toggleButton = Utility:Create("ImageButton", {
+        Name = "ToggleButton",
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 20, 0.5, -25),
+        Size = UDim2.new(0, 50, 0, 50),
+        Image = "rbxassetid://7733658504", -- ไอคอน Menu (เปลี่ยน ID ตามต้องการ)
+        ImageColor3 = self.Theme.Accent,
+        ZIndex = 1000,
+        Parent = self.ScreenGui
+    })
+    
+    -- เพิ่มเอฟเฟคเงาให้กับปุ่ม
+    local shadow = Utility:Create("ImageLabel", {
+        Name = "Shadow",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0.5, 0, 0.5, 0),
+        Size = UDim2.new(1.5, 0, 1.5, 0),
+        Image = "rbxassetid://7743878857", -- รูปเงากลม
+        ImageColor3 = SHADOW_COLOR,
+        ImageTransparency = 0.4,
+        ZIndex = 999,
+        Parent = toggleButton
+    })
+    
+    -- เพิ่มวงกลมเรืองแสงรอบปุ่ม
+    local glow = Utility:Create("ImageLabel", {
+        Name = "Glow",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0.5, 0, 0.5, 0),
+        Size = UDim2.new(1.7, 0, 1.7, 0),
+        Image = "rbxassetid://7743878857", -- รูปวงกลม
+        ImageColor3 = self.Theme.Accent,
+        ImageTransparency = 0.7,
+        ZIndex = 998,
+        Parent = toggleButton
+    })
+    
+    -- สถานะเปิด/ปิด UI
+    local isOpen = true
+    
+    -- ฟังก์ชั่นเปิด/ปิด UI
+    local function toggleUI()
+        isOpen = not isOpen
+        
+        -- หมุนปุ่มเป็นเอฟเฟค
+        Utility:Tween(toggleButton, {Rotation = toggleButton.Rotation + 180}, 0.4, Enum.EasingStyle.Back)
+        
+        -- เปลี่ยนสีปุ่มตามสถานะ
+        local targetColor = isOpen and self.Theme.Accent or self.Theme.Error
+        Utility:Tween(toggleButton, {ImageColor3 = targetColor}, 0.3)
+        Utility:Tween(glow, {ImageColor3 = targetColor}, 0.3)
+        
+        -- สร้างเอฟเฟคเรืองแสงเมื่อกด
+        Utility:Tween(glow, {ImageTransparency = 0.5, Size = UDim2.new(2, 0, 2, 0)}, 0.2)
+        task.delay(0.2, function()
+            Utility:Tween(glow, {ImageTransparency = 0.7, Size = UDim2.new(1.7, 0, 1.7, 0)}, 0.2)
+        end)
+        
+        -- เลื่อน UI ออกจากหน้าจอหรือกลับเข้ามา
+        for _, window in ipairs(self.Windows) do
+            if isOpen then
+                -- เลื่อน UI กลับเข้ามา
+                Utility:Tween(window.Frame, {
+                    Position = window.OriginalPosition or UDim2.new(0.5, -window.Frame.AbsoluteSize.X/2, 0.5, -window.Frame.AbsoluteSize.Y/2)
+                }, 0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            else
+                -- บันทึกตำแหน่งปัจจุบัน
+                window.OriginalPosition = window.Frame.Position
+                
+                -- เลื่อน UI ออกไปนอกหน้าจอ
+                Utility:Tween(window.Frame, {
+                    Position = UDim2.new(-1, 0, window.Frame.Position.Y.Scale, window.Frame.Position.Y.Offset)
+                }, 0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            end
+        end
+    end
+    
+    -- เอฟเฟคเมื่อนำเมาส์ไปวาง
+    toggleButton.MouseEnter:Connect(function()
+        Utility:Tween(toggleButton, {Size = UDim2.new(0, 60, 0, 60)}, 0.3, Enum.EasingStyle.Back)
+        Utility:Tween(glow, {ImageTransparency = 0.5}, 0.3)
+    end)
+    
+    toggleButton.MouseLeave:Connect(function()
+        Utility:Tween(toggleButton, {Size = UDim2.new(0, 50, 0, 50)}, 0.3, Enum.EasingStyle.Back)
+        Utility:Tween(glow, {ImageTransparency = 0.7}, 0.3)
+    end)
+    
+    -- เรียกใช้ฟังก์ชั่นเมื่อคลิกปุ่ม
+    toggleButton.MouseButton1Click:Connect(toggleUI)
+    
+    -- สร้าง API สำหรับเรียกใช้จากภายนอก
+    local api = {
+        Toggle = toggleUI,
+        SetState = function(state)
+            if state ~= isOpen then
+                toggleUI()
+            end
+        end,
+        GetState = function()
+            return isOpen
+        end,
+        Button = toggleButton
+    }
+    
+    -- ลงทะเบียนปุ่มกับ UI
+    self.ToggleButton = api
+    
+    return api
+end
 
+-- โค้ดตัวอย่างการใช้งาน:
+-- local toggleButton = NexonUI:CreateToggleButton()
+-- 
+-- -- เปิดใช้งานฟังก์ชันผ่าน API
+-- toggleButton:Toggle() -- สลับสถานะเปิด/ปิด
+-- toggleButton:SetState(true) -- กำหนดให้เปิด UI
+-- toggleButton:SetState(false) -- กำหนดให้ปิด UI
+-- local isOpen = toggleButton:GetState() -- เช็คสถานะ
 -- Notification system
 function NexonUI:Notify(options)
     self:Init()
